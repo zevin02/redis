@@ -41,7 +41,10 @@
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
-static inline int sdsHdrSize(char type) {
+static inline int sdsHdrSize(char type) {//获得某个结构体的大小
+//type表示sds字符串的类型
+//获得一个结构体的低3位判断他是一个什么类型的sds，5，8还是64
+//这个地方
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             return sizeof(struct sdshdr5);
@@ -236,58 +239,74 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+//字符串进行增长操作，
 sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
+    //s是需要扩容的sds字符串，addlen是需要增加的长度，greedy是是否需要进行贪心扩容
     void *sh, *newsh;
-    size_t avail = sdsavail(s);
+    size_t avail = sdsavail(s);//获得sds中还可以使用的空间
     size_t len, newlen, reqlen;
-    char type, oldtype = s[-1] & SDS_TYPE_MASK;
-    int hdrlen;
-    size_t usable;
+    char type, oldtype = s[-1] & SDS_TYPE_MASK;//这个地方保存之前的类型
+    int hdrlen;//获得他对应的头结构体的字节大小
+    size_t usable;//这个地方的usable就是用来记录分配的内存块的实际大小，让调用人可以知道，避免访问非法内存，
 
     /* Return ASAP if there is enough space left. */
-    if (avail >= addlen) return s;
+    if (avail >= addlen) return s;//如果原本的空间够用，我们什么也不做
 
-    len = sdslen(s);
-    sh = (char*)s-sdsHdrSize(oldtype);
+    len = sdslen(s);//获得目前的长度
+    sh = (char*)s-sdsHdrSize(oldtype);//这个地方把sh指向对应的数据
+
+    //计算新的长度newlen，在原本的len长度上要加上增加的长度
     reqlen = newlen = (len+addlen);
+    //newlen一定是要比之前的len大的
     assert(newlen > len);   /* Catch size_t overflow */
+    //这个分配空间会比实际请求的多分配一点
     if (greedy == 1) {
-        if (newlen < SDS_MAX_PREALLOC)
-            newlen *= 2;
+        if (newlen < SDS_MAX_PREALLOC)//如果小于最大分配长度
+            newlen *= 2;//我们乘2即可
         else
-            newlen += SDS_MAX_PREALLOC;
+            newlen += SDS_MAX_PREALLOC;//否则直接增加这个最大值
     }
-
+    //根据新的len确定新的sds字符串的类型，（原来的alloc可能太小了，不够这个newlen的长度）
     type = sdsReqType(newlen);
 
     /* Don't use type 5: the user is appending to the string and type 5 is
      * not able to remember empty space, so sdsMakeRoomFor() must be called
      * at every appending operation. */
-    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    //类型5不能记住空闲的空间（没有alloc和len字段），所以必须在每次使用都需要添加操作调用扩容函数
 
+    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    //计算新的头部长度
     hdrlen = sdsHdrSize(type);
+    //判断新头的大小和新len长度必须要大与真正内存需要占用的长度
     assert(hdrlen + newlen + 1 > reqlen);  /* Catch size_t overflow */
+    //并分配一个新的空间newsh
     if (oldtype==type) {
-        newsh = s_realloc_usable(sh, hdrlen+newlen+1, &usable);
+        //类型没有变化
+        newsh = s_realloc_usable(sh, hdrlen+newlen+1, &usable);//对内存重分配，在原来的基础上进行扩容即可
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
         /* Since the header size changes, need to move the string forward,
          * and can't use realloc */
-        newsh = s_malloc_usable(hdrlen+newlen+1, &usable);
+        //头部类型变化了，我们需要移动字符串
+        //所以我们需要使用malloc
+        newsh = s_malloc_usable(hdrlen+newlen+1, &usable);//第一个参数就是内存实际需要占用的字节大小
         if (newsh == NULL) return NULL;
+        //进行数据的拷贝
         memcpy((char*)newsh+hdrlen, s, len+1);
-        s_free(sh);
-        s = (char*)newsh+hdrlen;
-        s[-1] = type;
+        s_free(sh);//释放掉原来的空间
+        s = (char*)newsh+hdrlen;//2指向
+        s[-1] = type;//这个指向的就是flag，s他实际指向的是柔性数组的第一个字节,而不是len的位置
         sdssetlen(s, len);
     }
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);
-    sdssetalloc(s, usable);
+        //现在这个usable就是现在新的实际占用的长度
+    sdssetalloc(s, usable);//根据这个newlen来设置alloc，提高alloc的值
     return s;
 }
+
 
 /* Enlarge the free space at the end of the sds string more than needed,
  * This is useful to avoid repeated re-allocations when repeatedly appending to the sds. */
@@ -306,6 +325,9 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+//这个地方会真正执行内存释放的操作，使它没有空闲的空间，之前的字符串无效了，之后都要使用这个新函数返回的字符串来进行替代
+
+//would_grow 这个就是用来判断是否需要进行重刑分配内存
 sds sdsRemoveFreeSpace(sds s, int would_regrow) {
     return sdsResize(s, sdslen(s), would_regrow);
 }
@@ -319,6 +341,7 @@ sds sdsRemoveFreeSpace(sds s, int would_regrow) {
  * The sdsAlloc size will be set to the requested size regardless of the actual
  * allocation size, this is done in order to avoid repeated calls to this
  * function when the caller detects that it has excess space. */
+
 sds sdsResize(sds s, size_t size, int would_regrow) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -327,6 +350,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
     sh = (char*)s-oldhdrlen;
 
     /* Return ASAP if the size is already good. */
+    //如果此时的容量的长度相等已经很好了，就不需要进行操作了
     if (sdsalloc(s) == size) return s;
 
     /* Truncate len if needed. */
@@ -480,14 +504,15 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
-sds sdscatlen(sds s, const void *t, size_t len) {
-    size_t curlen = sdslen(s);
 
-    s = sdsMakeRoomFor(s,len);
+sds sdscatlen(sds s, const void *t, size_t len) {//sds的字符串拼接
+    size_t curlen = sdslen(s);//先获得当前的长度
+
+    s = sdsMakeRoomFor(s,len);//如果不够的话就需要进行一个扩容
     if (s == NULL) return NULL;
-    memcpy(s+curlen, t, len);
-    sdssetlen(s, curlen+len);
-    s[curlen+len] = '\0';
+    memcpy(s+curlen, t, len);//这里如果足够的话，往s里面添加一下新元素，从s+curlen的位置处开始进行复制
+    sdssetlen(s, curlen+len);//设置s的新长度
+    s[curlen+len] = '\0';//并把他的最后一个位置设置成0
     return s;
 }
 
@@ -503,6 +528,7 @@ sds sdscat(sds s, const char *t) {
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+//把t的数据添加到s后面
 sds sdscatsds(sds s, const sds t) {
     return sdscatlen(s, t, sdslen(t));
 }
@@ -806,6 +832,9 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "HelloWorld".
  */
+//使用这个函数可以用来裁减字符串
+//从左变往右如果s里面有cset的其中一个字符串，就需要进行一个删除，
+//在从右边往左执行同样的操作
 sds sdstrim(sds s, const char *cset) {
     char *end, *sp, *ep;
     size_t len;

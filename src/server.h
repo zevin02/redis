@@ -850,14 +850,17 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
+
+
+//redis中的每个元素都是robj这个类型的，包含key 和value以及后面的选项时间之类的
 typedef struct redisObject {
-    unsigned type:4;
+    unsigned type:4;        //这个是一个位端，占4个bit位，用来表示是什么类型的，字符串，双段列表，或者其他的类型
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+    int refcount;          // 一个对象可能会被多次引用，引用的对象
+    void *ptr;             //这个是指向实际存储对象，void * 就是为了实现泛性编程
 } robj;
 
 /* The a string name for an object's type as listed above
@@ -1095,8 +1098,8 @@ typedef struct client {
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
-    int argc;               /* Num of arguments of current command. */
-    robj **argv;            /* Arguments of current command. */
+    int argc;               /* Num of arguments of current command. *///客户端输入命令的个数
+    robj **argv;            /* Arguments of current command. *///客户端输入的命令都是字符串数组
     int argv_len;           /* Size of argv array (may be more than argc) */
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */

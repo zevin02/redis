@@ -602,18 +602,20 @@ void trimStringObjectIfNeeded(robj *o) {
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
-    sds s = o->ptr;
+    sds s = o->ptr;//获得这个存储的value
     size_t len;
 
     /* Make sure this is a string object, the only type we encode
      * in this function. Other types use encoded memory efficient
      * representations but are handled by the commands implementing
      * the type. */
+    //这个操作确保了现在执行的类型是string
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* We try some specialized encoding only for objects that are
      * RAW or EMBSTR encoded, in other words objects that are still
      * in represented by an actually array of chars. */
+    //判断现在正在编码的类型是否为sds
     if (!sdsEncodedObject(o)) return o;
 
     /* It's not safe to encode shared objects: shared objects can be shared
@@ -624,7 +626,10 @@ robj *tryObjectEncoding(robj *o) {
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
+    //检查一个string是否能被表示成为长整形
+    
     len = sdslen(s);
+    //
     if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used

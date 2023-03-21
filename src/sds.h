@@ -30,6 +30,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+//这是一个动态字符串（simple dynamic string==sds）
+//如使用set msg "hello"
+//这个地方的msg是一个字符床对象，是sds类型的，“hello”也是一个字符串，也是一个sds类型的
 #ifndef __SDS_H
 #define __SDS_H
 
@@ -44,15 +47,27 @@ typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
+//sds有5中header类型，为了让不同的字符床使用不同长度的header
+
+/*
+    柔性数组：可变长度的数组，这个数组的长度不是在定义结构体的时候确定，而是在运行时分配内存时确定，在动态分配内存的时候很好用，这个对比指针数组，就是减少了依次结构体中指针的内粗un开辟
+    避免了内存的零散性
+*/
+
+
 struct __attribute__ ((__packed__)) sdshdr5 {
+    //低3位用来存储这是一个什么类型锁sds，后5为用来代表他字符串的长度
+
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
-struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+
+//sds的头部实际上值占一个字节的空间，
+struct __attribute__ ((__packed__)) sdshdr8 {//packed这个就是指定没有要求字节对其
+    uint8_t len; /* used *///已经使用的字节数量
+    uint8_t alloc; /* excluding the header and null terminator *///分配的buf数组长度
+    unsigned char flags; /* 3 lsb of type, 5 unused bits *///最低的3位表示header类型，另外5个位没使用，
+    char buf[];//这是一个柔性数组，可以动态的存储字符串，动态的调整大小，
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */
@@ -73,6 +88,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     char buf[];
 };
 
+//这个就是3个比特位分别代表的类型
 #define SDS_TYPE_5  0
 #define SDS_TYPE_8  1
 #define SDS_TYPE_16 2
@@ -81,6 +97,12 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+//SDS_HDR(8,s)
+
+//## 就是字符串连接，int也能连接，这个连接在一起就是
+//(struct sdshdr8*)(s-报头的大小)
+//这个实际上就是指向到对应的结构体的第一个字节的位置
+//根据第一个位置就可以调用->
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
@@ -193,6 +215,7 @@ static inline size_t sdsalloc(const sds s) {
     }
     return 0;
 }
+
 
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];

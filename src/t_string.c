@@ -81,6 +81,8 @@ static int checkStringLength(client *c, long long size, long long append) {
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
+
+//这个函数就是最终前面都解析完了，来进行执行set key value 操作
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
     int found = 0;
@@ -107,7 +109,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
 
     setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
-
+    //这个就是把key写到数据库中
     setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
@@ -203,9 +205,12 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
  * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  */
+//这个函数执行用于set和get命令的扩展字符的常见验证，，这个函数主要是用来验证和亲历用户的输入，防止错误，确保正在操作或检索的数据完整性
+//解析后面的set后面的一些选项
 int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, int command_type) {
 
-    int j = command_type == COMMAND_GET ? 2 : 3;
+    int j = command_type == COMMAND_GET ? 2 : 3;//如果这个地方的command是get，j=2,否则就是3,set里面最多是3个元素
+    //这个地方的j就是默认的命令最小的形式
     for (; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
@@ -292,13 +297,15 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
 void setCommand(client *c) {
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
-    int flags = OBJ_NO_FLAGS;
-
+    int flags = OBJ_NO_FLAGS;//这个用来判断后面有哪些选项
+    //检查输入的参数
     if (parseExtendedStringArgumentsOrReply(c,&flags,&unit,&expire,COMMAND_SET) != C_OK) {
         return;
     }
-
+    // set 11 222
+    //这个的c->argv[2]=222
     c->argv[2] = tryObjectEncoding(c->argv[2]);
+    //c ji
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 

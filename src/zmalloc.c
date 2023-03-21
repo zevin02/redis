@@ -113,7 +113,7 @@ void *ztrymalloc_usable(size_t size, size_t *usable) {
 #ifdef HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
-    if (usable) *usable = size;
+    if (usable) *usable = size;//
     return ptr;
 #else
     *((size_t*)ptr) = size;
@@ -138,7 +138,7 @@ void *ztrymalloc(size_t size) {
 
 /* Allocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
-void *zmalloc_usable(size_t size, size_t *usable) {
+void *zmalloc_usable(size_t size, size_t *usable) {//这个地方使用malloc进行分配空间
     void *ptr = ztrymalloc_usable(size, usable);
     if (!ptr) zmalloc_oom_handler(size);
     return ptr;
