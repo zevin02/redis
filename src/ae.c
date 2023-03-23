@@ -350,10 +350,12 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_TIME_EVENTS set, time events are processed.
  * if flags has AE_DONT_WAIT set, the function returns ASAP once all
  * the events that can be handled without a wait are processed.
- * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
- * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
+ * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.处理完值后调用aftersleep回调函数
+ * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.等待事件发生之前调用beforesleep回调函数
  *
  * The function returns the number of events processed. */
+//这个是时间循环处理函数，处理当前挂起的时间/文件事件，flag就是要处理什么类型的事件
+//
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -491,7 +493,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
 }
 
 void aeMain(aeEventLoop *eventLoop) {
-    eventLoop->stop = 0;
+    eventLoop->stop = 0;//这个地方设置stop为0
     while (!eventLoop->stop) {
         aeProcessEvents(eventLoop, AE_ALL_EVENTS|
                                    AE_CALL_BEFORE_SLEEP|

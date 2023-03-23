@@ -33,27 +33,33 @@
 
 /* Node, List, and Iterator are the only data structures used currently. */
 
+//adlist是一个双端无环带头尾节点的一个链表，可计算链表长度，具有多态的性质
+
+
 typedef struct listNode {
     struct listNode *prev;
     struct listNode *next;
     void *value;
 } listNode;
 
+//链表的迭代器，这个迭代器获得的当前节点的前一个节点位置
 typedef struct listIter {
-    listNode *next;
-    int direction;
+    listNode *next; //下一个节点
+    int direction;  //向前迭代还是向后迭代
 } listIter;
 
 typedef struct list {
     listNode *head;
     listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
-    unsigned long len;
+    //这个下面的就是为了实现多态链表的函数
+    void *(*dup)(void *ptr);    //复制(拷贝)链表中节点值
+    void (*free)(void *ptr);    //释放节点的值
+    int (*match)(void *ptr, void *key);//比较链表里面保存的值和另一个输入的值是否相等，相等位1,不相等为0
+    unsigned long len;          //表示链表的长度
 } list;
 
 /* Functions implemented as macros */
+//使用宏函数获得链表的里面的元素
 #define listLength(l) ((l)->len)
 #define listFirst(l) ((l)->head)
 #define listLast(l) ((l)->tail)
@@ -94,7 +100,8 @@ void listLinkNodeTail(list *list, listNode *node);
 void listUnlinkNode(list *list, listNode *node);
 
 /* Directions for iterators */
-#define AL_START_HEAD 0
-#define AL_START_TAIL 1
+//迭代器迭代的方向
+#define AL_START_HEAD 0         //从表头向表尾迭代
+#define AL_START_TAIL 1         //从表尾向表头迭代
 
 #endif /* __ADLIST_H__ */

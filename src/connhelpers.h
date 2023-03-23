@@ -74,9 +74,10 @@ static inline int connHasRefs(connection *conn) {
  * 2. Execute the handler (if set).
  * 3. Decrement refs and perform deferred close, if refs==0.
  */
+//执行连接的回调方法
 static inline int callHandler(connection *conn, ConnectionCallbackFunc handler) {
     connIncrRefs(conn);
-    if (handler) handler(conn);
+    if (handler) handler(conn);//判断回调函数是否存在，在就执行对应的回调方法
     connDecrRefs(conn);
     if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
         if (!connHasRefs(conn)) connClose(conn);

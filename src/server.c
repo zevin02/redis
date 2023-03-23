@@ -6849,6 +6849,7 @@ redisTestProc *getTestProcByName(const char *name) {
 }
 #endif
 
+//主函数
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -7164,7 +7165,7 @@ int main(int argc, char **argv) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
-    aeMain(server.el);
+    aeMain(server.el);//执行到这个地方
     aeDeleteEventLoop(server.el);
     return 0;
 }

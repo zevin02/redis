@@ -2611,7 +2611,7 @@ int processInputBuffer(client *c) {
 
     return C_OK;
 }
-
+//从客户端中读取客户端的数据
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;

@@ -96,6 +96,10 @@ typedef struct aeFiredEvent {
 } aeFiredEvent;
 
 /* State of an event based program */
+//这个通常用于异步IO
+//管理着一组文件描述符（socket，文件，管道等）
+
+//并且在这些文件描述符中监听事件的发生，当事件发生的时候会调用响应的回调函数来执行
 typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
@@ -103,7 +107,7 @@ typedef struct aeEventLoop {
     aeFileEvent *events; /* Registered events */
     aeFiredEvent *fired; /* Fired events */
     aeTimeEvent *timeEventHead;
-    int stop;
+    int stop;   //用来进行结束循环的
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;

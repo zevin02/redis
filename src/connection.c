@@ -266,6 +266,9 @@ static const char *connSocketGetLastError(connection *conn) {
     return strerror(conn->last_errno);
 }
 
+//这个是一个回调函数，处理对应的IO事件，这个函数被事件循环，被事件监听的fd调用
+//fd就是触发事件的文件描述符，clientdata连接对象的指针
+//通常被用于处理网络连接的IO事件，读写数据，还可以接收连接请求读取客户端发送的数据，向客户端发送数据
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
     UNUSED(el);

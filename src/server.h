@@ -1250,22 +1250,36 @@ struct sharedObjectsStruct {
 };
 
 /* ZSETs use a specialized version of Skiplists */
+//redis提供的有序集合就是使用跳表实现的
+//跳表中每个节点的结构
+//zadd key 100 value
+//这个地方的每个前街都是前后连接的，双向链表
+//我们虽然规定最底部是第1层，但是我们使用的时候还是用level[0]来代表
+
+//这个只使用在zset里面
+
+
+//如果score相等，再按照ele排序
 typedef struct zskiplistNode {
-    sds ele;
-    double score;
-    struct zskiplistNode *backward;
+    sds ele;//节点存储的具体的值
+    double score;//存储的分值，我们就是按照这个分值来进行排序的
+    struct zskiplistNode *backward;//后退指针，用于指向前一个节点，进行反向遍历（zrerange）
     struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned long span;
-    } level[];
+        struct zskiplistNode *forward;//用于指向当前层后一个节点，如果他指向nullptr，说明后面没有节点
+        //span实际上是用来计算rank（排位的），当前值在zset中的排位，
+        //计算排名就是从到开始到当前节点的路径的一个累加
+        unsigned long span;//到(同一层级)到下一个节点的跨度,用来记录两个节点之间的距离，跨度很大说明离得很远
+    } level[];//这个是一个柔性数组，层数不固定
 } zskiplistNode;
 
+//跳表的结构
 typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
+    struct zskiplistNode *header, *tail;//头指针，这个是实实在在的一个节点，但是没有存储有效的元素，尾节点，真正指向跳表的最后一个节点
+    unsigned long length;//所建立跳表的长度
+    int level;//当前有多少层数
 } zskiplist;
 
+//这个就是实现zset
 typedef struct zset {
     dict *dict;
     zskiplist *zsl;
@@ -1471,7 +1485,7 @@ struct redisServer {
     redisDb *db;
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
-    aeEventLoop *el;
+    aeEventLoop *el;            /*这个定义的是一个管理IO事件的事件循环，用于实现redis的多路复用*/
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
