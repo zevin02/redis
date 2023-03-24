@@ -1274,7 +1274,7 @@ typedef struct zskiplistNode {
 
 //跳表的结构
 typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;//头指针，这个是实实在在的一个节点，但是没有存储有效的元素，尾节点，真正指向跳表的最后一个节点
+    struct zskiplistNode *header, *tail;//头指针，这个是实实在在的一个节点，但是没有存储有效的元素，尾节点，指向的链表的最后一个元素，
     unsigned long length;//所建立跳表的长度
     int level;//当前有多少层数
 } zskiplist;
@@ -2852,12 +2852,15 @@ void ACLUpdateDefaultUserPassword(sds password);
 #define ZADD_OUT_UPDATED (1<<3) /* The element already existed, score updated. */
 
 /* Struct to hold an inclusive/exclusive range spec by score comparison. */
+//用于表示有序集合的数值范围，包括最大值和最小值
 typedef struct {
-    double min, max;
-    int minex, maxex; /* are min or max exclusive? */
+    double min, max;//最小值和最大值
+    int minex, maxex; /* are min or max exclusive? *///minex和maxex表示最大值和最小值是否不包含在范围内（是否是开闭区间）
+    //minex表示最小值不包含在范围内，maxex表示最大值不包含在里面
 } zrangespec;
 
 /* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
+//表示有序集合的字典序范围
 typedef struct {
     sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */

@@ -332,6 +332,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
 }
 
 int zslValueGteMin(double value, zrangespec *spec) {
+    //把节点的最大值和范围的最小值进行比较，因为最小值可能存在可能不存在，所以需要进行判断是否包含最小值
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
@@ -340,50 +341,61 @@ int zslValueLteMax(double value, zrangespec *spec) {
 }
 
 /* Returns if there is a part of the zset is in range. */
+//返回是否存在与给定范围匹配的节点
 int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
+    //给定的区间是否不存在
     if (range->min > range->max ||
             (range->min == range->max && (range->minex || range->maxex)))
         return 0;
-    x = zsl->tail;
+    x = zsl->tail;//获得尾节点，尾巴节点是最大的分数
     if (x == NULL || !zslValueGteMin(x->score,range))
         return 0;
     x = zsl->header->level[0].forward;
     if (x == NULL || !zslValueLteMax(x->score,range))
         return 0;
+    //范围合理，返回成功
     return 1;
 }
 
 /* Find the first node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+//获得给定范围内在跳表中的第一个元素
+
 zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
+    //对跳表进行范围检查，发现没有存在，所以直接返回
     if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
+        //查找符合min项的节点
         while (x->level[i].forward &&
             !zslValueGteMin(x->level[i].forward->score,range))
                 x = x->level[i].forward;
     }
 
     /* This is an inner range, so the next node cannot be NULL. */
+    //这个x就是在范围内的第一个节点
     x = x->level[0].forward;
-    serverAssert(x != NULL);
+    serverAssert(x != NULL);//保证不为空
 
     /* Check if score <= max. */
+    //同时要判断是不是应该也要小于最大值
     if (!zslValueLteMax(x->score,range)) return NULL;
+    //都满足，就返回该节点
     return x;
 }
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+//获得在范围内的最后一个节点
 zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
@@ -412,6 +424,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
  * range->maxex). When inclusive a score >= min && score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
+//范围删除
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
@@ -426,14 +439,15 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     }
 
     /* Current node is the last with score < or <= min. */
+    //定位到给定范围的第一个节点
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
     while (x && zslValueLteMax(x->score, range)) {
-        zskiplistNode *next = x->level[0].forward;
-        zslDeleteNode(zsl,x,update);
-        dictDelete(dict,x->ele);
-        zslFreeNode(x); /* Here is where x->ele is actually released. */
+        zskiplistNode *next = x->level[0].forward;//记录下一个节点
+        zslDeleteNode(zsl,x,update);//删除给定的节点
+        dictDelete(dict,x->ele);//释放值的空间
+        zslFreeNode(x); /* Here is where x->ele is actually released. *///释放节点
         removed++;
         x = next;
     }
