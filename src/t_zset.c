@@ -203,7 +203,6 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
 
 //删除一个节点，x就是要删除的节点
 
-
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
