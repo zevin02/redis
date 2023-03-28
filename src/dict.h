@@ -44,29 +44,41 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
+//dictentry就是节点的类型
 typedef struct dictEntry {
-    void *key;
+    void *key;//节点的key
+    //节点的value,这里的value是一个联合体，这里的节点值可以是任意类型的，具体使用哪一个值由节点的值来决定
     union {
         void *val;
         uint64_t u64;
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;     /* Next entry in the same hash bucket. */
+    
+    struct dictEntry *next;     /* Next entry in the same hash bucket. *///指向下一个hash节点，用于处理哈希冲突，在同一个桶里面，这个指针将他们挂起来，能够串起来元素
     void *metadata[];           /* An arbitrary number of bytes (starting at a
                                  * pointer-aligned address) of size as returned
                                  * by dictType's dictEntryMetadataBytes(). */
+                                //metadata是一个空数组，可以存储任意类型的元数据，可以用来存储处了节点有关数据之外的额外数据，
 } dictEntry;
 
 typedef struct dict dict;
 
+//dict相关的操作函数，以函数指针的形式存在
 typedef struct dictType {
+    //计算哈希值函数
     uint64_t (*hashFunction)(const void *key);
+    //复制key的
     void *(*keyDup)(dict *d, const void *key);
+    //复制value
     void *(*valDup)(dict *d, const void *obj);
+    //将key进行对比
     int (*keyCompare)(dict *d, const void *key1, const void *key2);
+    //销毁key
     void (*keyDestructor)(dict *d, void *key);
+    //销毁value
     void (*valDestructor)(dict *d, void *obj);
+    
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     /* Allow a dictEntry to carry extra caller-defined metadata.  The
      * extra memory is initialized to 0 when a dictEntry is allocated. */
@@ -76,17 +88,28 @@ typedef struct dictType {
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
 #define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
+//这个就是对字典的定义
+//最简单实现字典的有数组和链表，但是只能使用在元素不多的情况下
+//为了兼顾效率和简单性，就使用哈希表，
+//如果还希望实现排序的话，就可以使用平衡树
+
+//每个字典使用两个哈希表，实现渐进式rehash
+
 struct dict {
-    dictType *type;
+    dictType *type;//特定类型的处理函数，字典结构体需要根据具体的数据类型进行处理
+    //这里有2个hash表是因为
+    //0代表正在进行操作的哈希表
+    //1可以用来进行扩容和缩容，在rehash前设置成null
 
-    dictEntry **ht_table[2];
-    unsigned long ht_used[2];
+    dictEntry **ht_table[2];//2个指向指针数组的指针，用于存储字典中的元素，这个数组就是hashtable，每个元素是hash表的节点，dictentry就是节点的类型
+    unsigned long ht_used[2];//用于记录哈希表中已经使用的节点数，每当添加一个节点就要+1
 
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    //rehashidx的值表示当前正在进行rehash的散列表节点的索引
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 ，如果=-1,说明rehash并没有进行*/
 
     /* Keep small vars at end for optimal (minimal) struct padding */
-    int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
-    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+    int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) pauserhash>0表示rehash操作停止，<0表示当前编码出错，这个变量用来控制rehash操作的暂停和恢复*/
+    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) 用于存储三列表大小的指数*/
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
