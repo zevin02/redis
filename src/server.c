@@ -239,8 +239,8 @@ int dictSdsKeyCompare(dict *d, const void *key1,
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
-    if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
+    if (l1 != l2) return 0;//先比较字符串的长度，如果长度都不相等的话，直接就放回失败
+    return memcmp(key1, key2, l1) == 0;//否则再对内存进行比较，否则就成功
 }
 
 /* A case insensitive version used for the command lookup table and other
@@ -254,11 +254,12 @@ int dictSdsKeyCaseCompare(dict *d, const void *key1,
 
 void dictObjectDestructor(dict *d, void *val)
 {
-    UNUSED(d);
+    UNUSED(d);//同样这里不使用到d，所以我们这里使用UNUSED的宏，来避免编译器出现警告
+    //
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
-    decrRefCount(val);
+    decrRefCount(val);//把robj的引用计数-1,如果-到0,才释放掉这个内存
 }
-
+//释放掉对应的val的内存空间
 void dictSdsDestructor(dict *d, void *val)
 {
     UNUSED(d);
@@ -360,6 +361,8 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
+//判断字典是否需要进行扩容，使用率超过1.618就需要进行进行扩容
+
 int dictExpandAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
@@ -403,13 +406,14 @@ dictType objectKeyHeapPointerValueDictType = {
 };
 
 /* Set dictionary type. Keys are SDS strings, values are not used. */
+//set底层也是一个字典，但是set底层的value的值是空，所以无需进行比较，也无需进行销毁
 dictType setDictType = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    NULL                       /* val destructor *///默认支持扩容
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -424,14 +428,19 @@ dictType zsetDictType = {
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
+//redis本省就是一个比较调性的kv数据库，所以redis的DB也是一个比较大型的一个哈希表
+//这里定义了一个dbdictype的dictype的全局变量，并进行了初始化
+//key是一个字符床，而value是可以各种的数据类型如List,Hash,String,Set and forth
+
+
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
+    dictSdsHash,                /* hash function *///dictsdshash底层使用的是siphash算法,这个是给sds计算hash值
+    NULL,                       /* key dup *///不存在key的复制(深拷贝)
+    NULL,                       /* val dup *///不存在val的复制（深拷贝）
+    dictSdsKeyCompare,          /* key compare *///对key进行了一个比较，就是比较两个sds
+    dictSdsDestructor,          /* key destructor *///对key进行一个销毁
+    dictObjectDestructor,       /* val destructor *///对value进行销毁，每个value都是一个robj的类型，按照robj类型进行销毁,robj类型里面有指向真正变量的一个指针,同时这个里面还有引用基数的机制，当计数减到1的时候，才会释放对象
+    dictExpandAllowed,          /* allow to expand *///dict哈希的一个扩容函数
     dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
@@ -458,6 +467,8 @@ dictType commandTableDictType = {
 };
 
 /* Hash type hash table (note that small hashes are represented with listpacks) */
+// 这个就是hash的一个字典，这里的key是一个sds，val也是一个sds,所以比较，销毁都是基于sds进行的
+
 dictType hashDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
@@ -465,7 +476,7 @@ dictType hashDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
+    NULL                        /* allow to expand *///默认允许扩容
 };
 
 /* Dict type without destructor */

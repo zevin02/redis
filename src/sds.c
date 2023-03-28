@@ -40,7 +40,7 @@
 #include "sdsalloc.h"
 
 const char *SDS_NOINIT = "SDS_NOINIT";
-
+//获得一个string里面除去有效元素的真实的报头大小
 static inline int sdsHdrSize(char type) {//获得某个结构体的大小
 //type表示sds字符串的类型
 //获得一个结构体的低3位判断他是一个什么类型的sds，5，8还是64
@@ -194,9 +194,10 @@ sds sdsdup(const sds s) {
 }
 
 /* Free an sds string. No operation is performed if 's' is NULL. */
+//释放掉这个sds的字符床
 void sdsfree(sds s) {
     if (s == NULL) return;
-    s_free((char*)s-sdsHdrSize(s[-1]));
+    s_free((char*)s-sdsHdrSize(s[-1]));//s指向当前的字符串有效content位置，往前移动对应的报头大小
 }
 
 /* Set the sds string length to the length as obtained with strlen(), so

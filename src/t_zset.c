@@ -106,16 +106,18 @@ void zslFreeNode(zskiplistNode *node) {
 }
 
 /* Free a whole skiplist. */
+// 释放整个跳表
 void zslFree(zskiplist *zsl) {
+    //node就是最顶层的第一个有效节点
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
-    zfree(zsl->header);
-    while(node) {
+    zfree(zsl->header);//因为头节点也是我们malloc出来的，现在我们已经有了第一个有效节点的位置的节点，所以我们可以在这个地方方header给释放掉
+    while(node) {//进行一个迭代的遍历
         next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
     }
-    zfree(zsl);
+    zfree(zsl);//最后在释放掉整个跳表
 }
 
 /* Returns a random level for the new skiplist node we are going to create.

@@ -47,7 +47,7 @@
 //dictentry就是节点的类型
 typedef struct dictEntry {
     void *key;//节点的key
-    //节点的value,这里的value是一个联合体，这里的节点值可以是任意类型的，具体使用哪一个值由节点的值来决定
+    //节点的value,这里的value是一个联合体，这里的节点值可以是任意类型的，具体使用哪一个值由节点的值来决定,同时只能其中一个有值
     union {
         void *val;
         uint64_t u64;
@@ -65,23 +65,28 @@ typedef struct dictEntry {
 typedef struct dict dict;
 
 //dict相关的操作函数，以函数指针的形式存在
+//dicttype有多个比较典型和重要的实现如:dbdicttype hashdicttype setdicttype
+
+
 typedef struct dictType {
     //计算哈希值函数
     uint64_t (*hashFunction)(const void *key);
-    //复制key的
+    //复制key的，进行一个深拷贝，别的地方修改掉这个key不会影响已经写入到dict里面的key
     void *(*keyDup)(dict *d, const void *key);
     //复制value
     void *(*valDup)(dict *d, const void *obj);
-    //将key进行对比
+    //判断两个key是否相等
     int (*keyCompare)(dict *d, const void *key1, const void *key2);
     //销毁key
+    //在写入的时候进行神拷贝，我们在释放的时候就要进行把拷贝出来的内存给释放掉，value同理
     void (*keyDestructor)(dict *d, void *key);
     //销毁value
     void (*valDestructor)(dict *d, void *obj);
-    
+    //判断dict是否还需要进行扩容
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     /* Allow a dictEntry to carry extra caller-defined metadata.  The
      * extra memory is initialized to 0 when a dictEntry is allocated. */
+    //用来计算metadata的柔性数组的长度
     size_t (*dictEntryMetadataBytes)(dict *d);
 } dictType;
 
@@ -102,14 +107,14 @@ struct dict {
     //1可以用来进行扩容和缩容，在rehash前设置成null
 
     dictEntry **ht_table[2];//2个指向指针数组的指针，用于存储字典中的元素，这个数组就是hashtable，每个元素是hash表的节点，dictentry就是节点的类型
-    unsigned long ht_used[2];//用于记录哈希表中已经使用的节点数，每当添加一个节点就要+1
+    unsigned long ht_used[2];//用于记录哈希表中已经使用的节点数，每当添加一个节点就要+1，每个哈希桶里面有几个元素
 
     //rehashidx的值表示当前正在进行rehash的散列表节点的索引
     long rehashidx; /* rehashing not in progress if rehashidx == -1 ，如果=-1,说明rehash并没有进行*/
 
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) pauserhash>0表示rehash操作停止，<0表示当前编码出错，这个变量用来控制rehash操作的暂停和恢复*/
-    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) 用于存储三列表大小的指数*/
+    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) 用来记录两个哈系桶的长度，实际上是记录2的n次方中n的值，hash table里面每次扩容都是2倍2倍的扩容，n=2,代表4,n=3代表8*/
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call

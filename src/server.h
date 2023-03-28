@@ -476,6 +476,9 @@ typedef enum {
 #define SUPERVISED_UPSTART 3
 
 /* Anti-warning macro... */
+//这个宏的作用就是告诉编译器，我们在代码中定义了一个变量，在一定情况下可能没有被使用，
+//这样编译器就不会出现警告，把V强制转化成void类型
+//转化成为void 类型的话，这个变量就不能使用了，void不存储任何值
 #define UNUSED(V) ((void) V)
 
 #define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^64 elements */
@@ -1281,8 +1284,8 @@ typedef struct zskiplist {
 
 //这个就是实现zset
 typedef struct zset {
-    dict *dict;
-    zskiplist *zsl;
+    dict *dict;//这个里面有两个字段，一个是dict
+    zskiplist *zsl;//这个里面就是存放对应的跳表
 } zset;
 
 typedef struct clientBufferLimitsConfig {

@@ -289,7 +289,8 @@ robj *createModuleObject(moduleType *mt, void *value) {
 
 void freeStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
-        sdsfree(o->ptr);
+        //ptr里面存储的是真正的值
+        sdsfree(o->ptr);//释放掉整个字符床的元素
     }
 }
 
@@ -313,12 +314,13 @@ void freeSetObject(robj *o) {
         serverPanic("Unknown set encoding type");
     }
 }
-
+//使用zset的数据，zset底层是一个跳表,或者也可以是一个listpack，所以我们可以根据对应的类型调用相应的zset释放函数
 void freeZsetObject(robj *o) {
     zset *zs;
     switch (o->encoding) {
     case OBJ_ENCODING_SKIPLIST:
-        zs = o->ptr;
+    //如果是一个跳表
+        zs = o->ptr;//把有效数据放到zs里面
         dictRelease(zs->dict);
         zslFree(zs->zsl);
         zfree(zs);
@@ -366,10 +368,11 @@ void incrRefCount(robj *o) {
         }
     }
 }
-
+//减少引用计数，如果当前已经是1,就说明自己是这个资源的最后一个拥有着，就需要执行释放空间
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {
+            //根据type的不同，调用不同的释放函数
         case OBJ_STRING: freeStringObject(o); break;
         case OBJ_LIST: freeListObject(o); break;
         case OBJ_SET: freeSetObject(o); break;
@@ -381,8 +384,8 @@ void decrRefCount(robj *o) {
         }
         zfree(o);
     } else {
-        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
-        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");//应用计数小于等于0还调用这个函数，就有问题了
+        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;//如果不是最大值，就减少引用计数即可
     }
 }
 

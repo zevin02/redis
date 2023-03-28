@@ -124,6 +124,15 @@ int siptlw(int c) {
     } while (0)
 
 NO_SANITIZE("alignment")
+//dbdicttype字典的hash算法是siphash这个方法
+//哈希函数一般1.为了提高hash计算的速度
+//2.减少出现哈希冲突的次数
+
+
+//而这个siphash是来解决哈希洪水攻击的安全问题，在计算hash值的速度也很块，hash碰撞的次数也很优秀
+//哈希洪水攻击：攻击者发送大量的恶意数据包，让目标系统的hash table填满，导致系统崩溃
+//生成大量的哈希冲突，ddos常被用在拒绝攻击，以瘫痪目标 系统
+
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
 #ifndef UNALIGNED_LE_CPU
     uint64_t hash;
