@@ -96,28 +96,30 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 /* Reset hash table parameters already initialized with _dictInit()*/
 static void _dictReset(dict *d, int htidx)
 {
-    d->ht_table[htidx] = NULL;
-    d->ht_size_exp[htidx] = -1;
-    d->ht_used[htidx] = 0;
+    d->ht_table[htidx] = NULL;//指向null
+    d->ht_size_exp[htidx] = -1;//2的-1次方，说明没有元素
+    d->ht_used[htidx] = 0;//使用的元素为0
 }
 
 /* Create a new hash table */
+//创建一个新的dict实例
 dict *dictCreate(dictType *type)
 {
-    dict *d = zmalloc(sizeof(*d));
+    dict *d = zmalloc(sizeof(*d));//申请一个dict实例的空间
 
-    _dictInit(d,type);
+    _dictInit(d,type);//初始化dict实例中的各个字段
     return d;
 }
 
 /* Initialize the hash table */
+//初始化dict里面各个字段
 int _dictInit(dict *d, dictType *type)
 {
-    _dictReset(d, 0);
+    _dictReset(d, 0);//将两个hashtable的实例都设置成null
     _dictReset(d, 1);
-    d->type = type;
-    d->rehashidx = -1;
-    d->pauserehash = 0;
+    d->type = type;//将里面的类型设置为type类型
+    d->rehashidx = -1;//rehashidx社会锁子成-1,表示rehash没有进行
+    d->pauserehash = 0;//pauserehash=0表示，
     return DICT_OK;
 }
 
@@ -137,8 +139,12 @@ int dictResize(dict *d)
 /* Expand or create the hash table,
  * when malloc_failed is non-NULL, it'll avoid panic if malloc fails (in which case it'll be set to 1).
  * Returns DICT_OK if expand was performed, and DICT_ERR if skipped. */
+//进行一个rehash
+//0好哈希表容量不够了，就触发扩容机制，把数据都存到1号哈希表中，完成扩容后0号哈希表指针指向1号哈希表，1号哈希表再设置为null即可(为下次扩容进行操作)
+
 int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 {
+    //这个下面进行一个检查逻辑
     if (malloc_failed) *malloc_failed = 0;
 
     /* the size is invalid if it is smaller than the number of
@@ -147,11 +153,14 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
         return DICT_ERR;
 
     /* the new hash table */
+    //
+
     dictEntry **new_ht_table;
     unsigned long new_ht_used;
-    signed char new_ht_size_exp = _dictNextExp(size);
+    signed char new_ht_size_exp = _dictNextExp(size);//计算扩容后的长度，大于当前的容量并且第一个小于2^n次方的那个数
 
     /* Detect overflows */
+    //异常的检查逻辑
     size_t newsize = 1ul<<new_ht_size_exp;
     if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
         return DICT_ERR;
@@ -159,27 +168,31 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     /* Rehashing to the same table size is not useful. */
     if (new_ht_size_exp == d->ht_size_exp[0]) return DICT_ERR;
 
+
     /* Allocate the new hash table and initialize all pointers to NULL */
+    //开始申请扩容值后的ht_table的空间
     if (malloc_failed) {
-        new_ht_table = ztrycalloc(newsize*sizeof(dictEntry*));
-        *malloc_failed = new_ht_table == NULL;
+        new_ht_table = ztrycalloc(newsize*sizeof(dictEntry*));//给新的hashtable分配出newsize个大小的空间
+        *malloc_failed = new_ht_table == NULL;//
         if (*malloc_failed)
             return DICT_ERR;
     } else
         new_ht_table = zcalloc(newsize*sizeof(dictEntry*));
 
-    new_ht_used = 0;
+    new_ht_used = 0;//新的一个hashtable的已经使用的元素
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
-    if (d->ht_table[0] == NULL) {
-        d->ht_size_exp[0] = new_ht_size_exp;
+    //初始化新开辟的hstable
+    if (d->ht_table[0] == NULL) {//如果第一个table中一个元素都没有，就根本不需要第二个桶
+        d->ht_size_exp[0] = new_ht_size_exp;//
         d->ht_used[0] = new_ht_used;
         d->ht_table[0] = new_ht_table;
         return DICT_OK;
     }
 
     /* Prepare a second hash table for incremental rehashing */
+    //否则就把新的元素放到第二个桶里面
     d->ht_size_exp[1] = new_ht_size_exp;
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
@@ -208,6 +221,14 @@ int dictTryExpand(dict *d, unsigned long size) {
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
+//redis的rehash并不会把整个key全都一次性进行，否则就会阻塞掉redis主进程
+//redis的实现是在每次访问dict的时候都会对一部分的key进行一个rehash，这样就把rehash分配到了不同的请求中
+//这样就不会出现长时间的阻塞，只是在每次请求的时候都分散一部分时间
+//如在增删改查的时候，都会进行一个rehash
+//分几次把数据搬运到第二个hashtable中
+
+
+//n的意思就是一次rehash，最多能处理多少个槽位置
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
@@ -216,20 +237,22 @@ int dictRehash(dict *d, int n) {
     {
         return 0;
     }
-
-    while(n-- && d->ht_used[0] != 0) {
+    //最多移动n次，同时如果0号数组中没有元素了，也就直接返回
+    while(n-- && d->ht_used[0] != 0) {//1.控制最多rehash多少个槽位
         dictEntry *de, *nextde;
-
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(DICTHT_SIZE(d->ht_size_exp[0]) > (unsigned long)d->rehashidx);
-        while(d->ht_table[0][d->rehashidx] == NULL) {
-            d->rehashidx++;
-            if (--empty_visits == 0) return 1;
+        //2.遇到多个空槽位就跳过
+        while(d->ht_table[0][d->rehashidx] == NULL) {//如果当前的正在进行的rehashidx槽位为空,跳过空槽位
+            d->rehashidx++;//rehashidx就往后移动
+            if (--empty_visits == 0) return 1;//如果连续碰到10个空槽位，这次的rehash就结束了
         }
+        //3.碰到一个非空的槽位，遍历这个链表下面的链表，对他进行一个rehash操作
         de = d->ht_table[0][d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
+            //遍历当前这个槽位的链表
             uint64_t h;
 
             nextde = de->next;
@@ -241,24 +264,27 @@ int dictRehash(dict *d, int n) {
             d->ht_used[1]++;
             de = nextde;
         }
-        d->ht_table[0][d->rehashidx] = NULL;
-        d->rehashidx++;
+        d->ht_table[0][d->rehashidx] = NULL;//移动干净了，把这个槽位设置成null
+        d->rehashidx++;//rehashidx索引位子自增
     }
 
     /* Check if we already rehashed the whole table... */
+    //4.检查ht_tablep[0]中的全部kv是否都已经被移动完成了
     if (d->ht_used[0] == 0) {
         zfree(d->ht_table[0]);
         /* Copy the new ht onto the old one */
+        //把0号数组的指针指向1号数组
+        //全部进行一个拷贝 
         d->ht_table[0] = d->ht_table[1];
         d->ht_used[0] = d->ht_used[1];
         d->ht_size_exp[0] = d->ht_size_exp[1];
         _dictReset(d, 1);
-        d->rehashidx = -1;
-        return 0;
+        d->rehashidx = -1;//把rehash标志位取消掉
+        return 0;//0说明不需要在rehash了
     }
 
     /* More to rehash... */
-    return 1;
+    return 1;//1代表还需要进行一个rehash
 }
 
 long long timeInMilliseconds(void) {
@@ -297,12 +323,15 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Add an element to the target hash table */
+//往hash表里面添加元素
+//key and value这里都有
+//add函数这里只负责添加键值对，遇到key相同的，不会进行覆盖
 int dictAdd(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
-    if (!entry) return DICT_ERR;
-    dictSetVal(d, entry, val);
+    if (!entry) return DICT_ERR;//如果entry为null，说明我们设置失败了
+    dictSetVal(d, entry, val);//设置对应的val值
     return DICT_OK;
 }
 
@@ -324,35 +353,43 @@ int dictAdd(dict *d, void *key, void *val)
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
+//不断往dict里面添加数据的同时，会检查dict需不需要进行扩容
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
     long index;
     dictEntry *entry;
     int htidx;
 
-    if (dictIsRehashing(d)) _dictRehashStep(d);
+    if (dictIsRehashing(d)) _dictRehashStep(d);//扩容相关的操作
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
+    
+    //计算写入的key位于哪个槽位
+    //这个地方会根据对应的dict类型，调用提前注册好的hash函数，进行计算hash值
+    //
     if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
         return NULL;
-
+    //现在获得了相应的index位置
     /* Allocate the memory and store the new entry.
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    htidx = dictIsRehashing(d) ? 1 : 0;
+
+    htidx = dictIsRehashing(d) ? 1 : 0;//判断是否正在进行rehash，如果正在rehash的话，就把htidx的值设置成1,这个就是我们需要操作的hashtable是哪个数组
     size_t metasize = dictMetadataSize(d);
-    entry = zmalloc(sizeof(*entry) + metasize);
+    entry = zmalloc(sizeof(*entry) + metasize);//创建新的dictentry条目，我们要把这个进行添加到dict里面
     if (metasize > 0) {
         memset(dictMetadata(entry), 0, metasize);
     }
+    //进行一个头插
+
     entry->next = d->ht_table[htidx][index];
     d->ht_table[htidx][index] = entry;
-    d->ht_used[htidx]++;
+    d->ht_used[htidx]++;//第一个hashtable中存储的节点数增加
 
     /* Set the hash entry fields. */
-    dictSetKey(d, entry, key);
+    dictSetKey(d, entry, key);//设置key
     return entry;
 }
 
@@ -1038,6 +1075,7 @@ static signed char _dictNextExp(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
+//计算处key的索引位置
 static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
 {
     unsigned long idx, table;
@@ -1045,22 +1083,30 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
     if (existing) *existing = NULL;
 
     /* Expand the hash table if needed */
-    if (_dictExpandIfNeeded(d) == DICT_ERR)
+    if (_dictExpandIfNeeded(d) == DICT_ERR)//这个是进行扩容使用的
         return -1;
+
+    //然后就是在两个hash桶中进行搜索对应的key
+    //正常情况下我们都是只使用一个hash table，而只有在扩容的时候才会使用第二个hashtable
+    
     for (table = 0; table <= 1; table++) {
+        //这个烟码的话，只题取到元素的低位,这样就能保证哈希值映射到0~size-1的位置上，相当于%运算
+        
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         /* Search if this slot does not already contain the given key */
-        he = d->ht_table[table][idx];
-        while(he) {
+        he = d->ht_table[table][idx];//获得idxhash table中第idx索引位置的entry元素
+        while(he) {//如果he不为空
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                if (existing) *existing = he;
-                return -1;
+                //如果key和哈希桶里面的key相同，或者key和he的key相同
+                if (existing) *existing = he;//如果existind存在，就把existing设置成这个he的entry
+                return -1;//key存在的场景下，返回的是-1,而不是相应的槽位的索引
             }
-            he = he->next;
+            he = he->next;//
         }
-        if (!dictIsRehashing(d)) break;
+        if (!dictIsRehashing(d)) break;//搜索完第一个hashtable的时候，判断是否处在扩容状态，如果不是，就直接break出去，不去对第二个table进行查找
     }
-    return idx;
+    return idx;//找到了对应的hashtable的桶的编号
+
 }
 
 void dictEmpty(dict *d, void(callback)(dict*)) {

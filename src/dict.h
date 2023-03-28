@@ -90,7 +90,10 @@ typedef struct dictType {
     size_t (*dictEntryMetadataBytes)(dict *d);
 } dictType;
 
+//计算hash表的元素个数
+//exp=-1,说明hashtable中没有元素，我们把大小设置成0
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
+//获得相应的掩码
 #define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
 //这个就是对字典的定义
@@ -109,10 +112,11 @@ struct dict {
     dictEntry **ht_table[2];//2个指向指针数组的指针，用于存储字典中的元素，这个数组就是hashtable，每个元素是hash表的节点，dictentry就是节点的类型
     unsigned long ht_used[2];//用于记录哈希表中已经使用的节点数，每当添加一个节点就要+1，每个哈希桶里面有几个元素
 
-    //rehashidx的值表示当前正在进行rehash的散列表节点的索引
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 ，如果=-1,说明rehash并没有进行*/
+    //rehashidx的值表示当前正在进行rehash的散列表节点的索引，0代表从0位置开始进行rehash
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 ，如果=-1,说明rehash并没有进行，=0说明正在进行*/
 
     /* Keep small vars at end for optimal (minimal) struct padding */
+    //=0说明rehash没有暂停，rehash可以正常进行
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) pauserhash>0表示rehash操作停止，<0表示当前编码出错，这个变量用来控制rehash操作的暂停和恢复*/
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) 用来记录两个哈系桶的长度，实际上是记录2的n次方中n的值，hash table里面每次扩容都是2倍2倍的扩容，n=2,代表4,n=3代表8*/
 };
@@ -162,6 +166,8 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d), (entry)->key)
 
+//设置key到entry的key字段
+//如果有dup就使用特定的dup函数，否则就直接进行复制即可
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
         (entry)->key = (d)->type->keyDup((d), _key_); \
