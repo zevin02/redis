@@ -121,6 +121,7 @@ void listLinkNodeHead(list* list, listNode *node) {
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
+//添加节点到list的尾巴
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;

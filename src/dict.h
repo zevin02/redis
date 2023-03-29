@@ -125,12 +125,22 @@ struct dict {
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
+//dict的迭代器
+//使用迭代器来屏蔽底层的实现逻辑
 typedef struct dictIterator {
-    dict *d;
-    long index;
+    dict *d;//指向对应的dict对象
+    long index;//当前迭代到的槽位
     int table, safe;
+    //table是单前迭代到哪个dict，只能是0或1
+    //safe表示当前迭代器是否处于安全模式迭代器，如果safe=1代表是安全迭代器，在迭代过程中，可以调用add，delete函数来修改dict实例
+    //safe=0代表不是安全的，只能使用dictnext迭代数据，而不能修改dict
+
+    //entry指向当前迭代到的节点
+    //nextentry表示下一个可以进行迭代的节点
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
+    //fingerprint为安全模式迭代器设计一个指纹标识
+    //这个就是在迭代器刚创建的时候，
     unsigned long long fingerprint;
 } dictIterator;
 

@@ -437,6 +437,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
 /* Search and remove an element. This is a helper function for
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
+//
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     uint64_t h, idx;
     dictEntry *he, *prevHe;
@@ -444,14 +445,15 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
-
+    //同样也是要处理是否处于渐进式hash的状态，需要的话，就处理一个槽
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    h = dictHashKey(d, key);//计算hash值
 
     for (table = 0; table <= 1; table++) {
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
-        prevHe = NULL;
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);//获得目标槽位
+        he = d->ht_table[table][idx];//获得对应的桶
+        prevHe = NULL;//记录前一个节点
+        //遍历两个桶，同样如果处于渐进式hash的时候，两个桶都要比较
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
@@ -459,11 +461,11 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     prevHe->next = he->next;
                 else
                     d->ht_table[table][idx] = he->next;
-                if (!nofree) {
-                    dictFreeUnlinkedEntry(d, he);
+                if (!nofree) {//nofree决定是否释放，nofree=0代表要释放
+                    dictFreeUnlinkedEntry(d, he);//he就是目标节点，释放掉目标节点
                 }
-                d->ht_used[table]--;
-                return he;
+                d->ht_used[table]--;//节点个数减少
+                return he;//返回单前节点
             }
             prevHe = he;
             he = he->next;
@@ -475,6 +477,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
+//delete直接释放掉dictentry的空间
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
@@ -500,6 +503,7 @@ int dictDelete(dict *ht, const void *key) {
  * // Do something with entry
  * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
  */
+//unlink会直接把dictentry节点从dict中摘掉，然后直接返回
 dictEntry *dictUnlink(dict *d, const void *key) {
     return dictGenericDelete(d,key,1);
 }
@@ -508,9 +512,9 @@ dictEntry *dictUnlink(dict *d, const void *key) {
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
-    dictFreeKey(d, he);
+    dictFreeKey(d, he);//释放掉key和val
     dictFreeVal(d, he);
-    zfree(he);
+    zfree(he);//再释放掉这个节点的内存
 }
 
 /* Destroy an entire dictionary */
@@ -548,23 +552,30 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
+//在dict中进行查找某个key，需要将两个ht_table都走一遍
+//1.dict的所有的操作都会判断是否需要进行一个渐进式的rehash
+//2.计算hash值，在ht_table[0]里面查找对应的槽位，然后遍历这个槽位挂着的链表
+//如果处理rehash状态，还需要取ht_table[1]中找一遍
+
+//dict的修改是直接调用find，获得对应的entry，并进行修改即可，不需要特定的一个modify函数
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
     uint64_t h, idx, table;
-
+    //如果dict里面一个元素都没有，这个函数就调用失败
     if (dictSize(d) == 0) return NULL; /* dict is empty */
-    if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    //判断是否处于rehash状态,rehashidx!=-1,就说明正在处理rehash状态
+    if (dictIsRehashing(d)) _dictRehashStep(d);//我们就需要进行一个先rehash
+    h = dictHashKey(d, key);//计算出来hash值
     for (table = 0; table <= 1; table++) {
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
-        while(he) {
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);//计算到对应的桶的索引，第一个桶和第二个桶的总元素不同，获得在各自桶的下标位置
+        he = d->ht_table[table][idx];//获得相应桶的拉链
+        while(he) {//遍历我们找到的这个桶
             if (key==he->key || dictCompareKeys(d, key, he->key))
-                return he;
+                return he;//找到的话就直接返回
             he = he->next;
         }
-        if (!dictIsRehashing(d)) return NULL;
+        if (!dictIsRehashing(d)) return NULL;//如果没处于rehash状态，就直接返回，如果处于，同时第一个桶里面没找到对应的位置下标，我们就需要访问第二个桶
     }
     return NULL;
 }
@@ -582,10 +593,11 @@ void *dictFetchValue(dict *d, const void *key) {
  * the fingerprint again when the iterator is released.
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
+
 unsigned long long dictFingerprint(dict *d) {
     unsigned long long integers[6], hash = 0;
     int j;
-
+    //把dict里面的每个字段进行都进行抑操作，获得一个long值 
     integers[0] = (long) d->ht_table[0];
     integers[1] = d->ht_size_exp[0];
     integers[2] = d->ht_used[0];
@@ -613,10 +625,10 @@ unsigned long long dictFingerprint(dict *d) {
     }
     return hash;
 }
-
+//创建一个不安全的迭代器
 dictIterator *dictGetIterator(dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictIterator *iter = zmalloc(sizeof(*iter));//开辟一个迭代器内存
 
     iter->d = d;
     iter->table = 0;
@@ -627,53 +639,57 @@ dictIterator *dictGetIterator(dict *d)
     return iter;
 }
 
+//创建一个安全的迭代器对象
 dictIterator *dictGetSafeIterator(dict *d) {
     dictIterator *i = dictGetIterator(d);
 
-    i->safe = 1;
+    i->safe = 1;//区别只是在于safe字段为1,其他都一样
     return i;
 }
 
-dictEntry *dictNext(dictIterator *iter)
+//进行迭代
+dictEntry *dictNext(dictIterator *iter)//获得iter的entry的nextentry位置
 {
     while (1) {
-        if (iter->entry == NULL) {
-            if (iter->index == -1 && iter->table == 0) {
-                if (iter->safe)
-                    dictPauseRehashing(iter->d);
+        if (iter->entry == NULL) {//首次调用，初始化迭代器
+            if (iter->index == -1 && iter->table == 0) {//index=-1.说明是首次调用
+                if (iter->safe)//如果处于安全的状态
+                    dictPauseRehashing(iter->d);//设置rehash处在暂停状态
                 else
-                    iter->fingerprint = dictFingerprint(iter->d);
+                    iter->fingerprint = dictFingerprint(iter->d);//对于不安全的迭代器，就需要计算并初始化fingerprint字段
             }
-            iter->index++;
-            if (iter->index >= (long) DICTHT_SIZE(iter->d->ht_size_exp[iter->table])) {
-                if (dictIsRehashing(iter->d) && iter->table == 0) {
-                    iter->table++;
-                    iter->index = 0;
+            iter->index++;//把索引值设置成0,表示从0好下标处开始遍历
+            if (iter->index >= (long) DICTHT_SIZE(iter->d->ht_size_exp[iter->table])) {//如果当前的index不合法
+                if (dictIsRehashing(iter->d) && iter->table == 0) {//如果处理rehash状态，同时是一号桶
+                    iter->table++;//说明第一个桶已经无法遍历了，我名需要进行对第二个桶进行遍历
+                    iter->index = 0;//重新设置从1号桶的0号下标开始遍历
                 } else {
+                    //否则的话就说明已经是在最后哦一个位置了，就不需要遍历了，就直接返回即可
                     break;
                 }
             }
-            iter->entry = iter->d->ht_table[iter->table][iter->index];
+            iter->entry = iter->d->ht_table[iter->table][iter->index];//entry指向当前条目，说明没问题，就指向当前条目
         } else {
-            iter->entry = iter->nextEntry;
+            iter->entry = iter->nextEntry;//如果entry不为空，就指向下一个位置
         }
         if (iter->entry) {
             /* We need to save the 'next' here, the iterator user
              * may delete the entry we are returning. */
-            iter->nextEntry = iter->entry->next;
+            iter->nextEntry = iter->entry->next;//获得下一个节点
             return iter->entry;
         }
     }
-    return NULL;
+    return NULL;//没找到的话就返回null
 }
 
+//完成迭代，就会释放掉迭代器
 void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
-            dictResumeRehashing(iter->d);
+            dictResumeRehashing(iter->d);//把rehash重新启动
         else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
+            assert(iter->fingerprint == dictFingerprint(iter->d));//安全的迭代器会计算一下fingerprint的值，看看是否发生变化
     }
     zfree(iter);
 }
@@ -931,44 +947,57 @@ static unsigned long rev(unsigned long v) {
  * 3) The reverse cursor is somewhat hard to understand at first, but this
  *    comment is supposed to help.
  */
-unsigned long dictScan(dict *d,
-                       unsigned long v,
-                       dictScanFunction *fn,
-                       dictScanBucketFunction* bucketfn,
-                       void *privdata)
+//scan可以用来在特定的游标位置上遍历大量的key方便（使用的是迭代遍历），大型的数据库中建议使用scan进行操作
+//hscan用于迭代大型hash表，cursor是游标的启动位置，
+
+//1. dict中支持分批迭代
+//2. 分批迭代的时候，还允许其他命令触发渐进式rehash
+//3. 只要数据在迭代的开始到结束，没有被删除，就一定会被迭代到，如果在迭代过程中，被删除掉，就不一定会迭代到了
+//4. 在迭代的过程中可能返回重复的数据
+unsigned long dictScan(dict *d,/*d是要进行扫描的dict实例*/
+                       unsigned long v,/*v是槽位开始迭代的索引位置，每次dictscan函数的返回值，就是下依次scan传入的参数*/
+                       dictScanFunction *fn,/*函数指针，回调函数，迭代到的每个节点都有这个函数来处理*/
+                       dictScanBucketFunction* bucketfn,/*bucket是一个函数指针，在迭代到一个新槽位的时候，会触发相应的回调逻辑*/
+                       void *privdata/*数组，是fn这个回调函数的参数，里面会放adlist链表，一个是当前迭代的对象是什么东西*/)
 {
-    int htidx0, htidx1;
+    int htidx0, htidx1;//ht_table数组的下标
     const dictEntry *de, *next;
     unsigned long m0, m1;
 
     if (dictSize(d) == 0) return 0;
 
     /* This is needed in case the scan callback tries to do dictFind or alike. */
-    dictPauseRehashing(d);
-
+    dictPauseRehashing(d);//暂停rehash，把pause字段+1，但是两次scan调用期间是允许rehash的
+    //根据是否处于rehash状态进入不同的分支
     if (!dictIsRehashing(d)) {
+        //不在rehash状态
         htidx0 = 0;
-        m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
+        m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);//m0是ht的掩码
 
         /* Emit entries at cursor */
+        //处理bucketfn这个回调，处理单个槽位
         if (bucketfn) bucketfn(d, &d->ht_table[htidx0][v & m0]);
-        de = d->ht_table[htidx0][v & m0];
-        while (de) {
+        de = d->ht_table[htidx0][v & m0];//获得对应的htidx在v索引位置的元素
+        while (de) {//进行向后遍历
             next = de->next;
-            fn(privdata, de);
+            fn(privdata, de);//调用fn回调，处理每个元素,获得每个元素
             de = next;
         }
 
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
-        v |= ~m0;
+        //这里的游标v使用的是翻转二进制迭代器的方式
+        //000+1=100       1+1=010,右边是高位，左边是低位
+        //这样可以遍历到所有的节点，从尾部开始遍历每个节点
+        v |= ~m0;//v保留低位，高位全部都设置成1
 
         /* Increment the reverse cursor */
-        v = rev(v);
-        v++;
-        v = rev(v);
+        v = rev(v);//进行对v的二进制的翻转
+        v++;//递增1
+        v = rev(v);//再对V进行翻转
 
     } else {
+        //处于rehash的分支中
         htidx0 = 0;
         htidx1 = 1;
 
@@ -977,16 +1006,17 @@ unsigned long dictScan(dict *d,
             htidx0 = 1;
             htidx1 = 0;
         }
-
+        //分别获得两个桶的掩码
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
         /* Emit entries at cursor */
+        //触发bucketfn回调。处理单个槽位
         if (bucketfn) bucketfn(d, &d->ht_table[htidx0][v & m0]);
         de = d->ht_table[htidx0][v & m0];
         while (de) {
             next = de->next;
-            fn(privdata, de);
+            fn(privdata, de);//处理每个节点的回调
             de = next;
         }
 
@@ -1012,7 +1042,7 @@ unsigned long dictScan(dict *d,
         } while (v & (m0 ^ m1));
     }
 
-    dictResumeRehashing(d);
+    dictResumeRehashing(d);//pause减少，允许渐进式的rehash
 
     return v;
 }

@@ -766,24 +766,32 @@ void keysCommand(client *c) {
 
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
+// 对特定的节点的一个回调
+// 把扫到的key和value都放到一个adlist中，就是这个key就是privdata中的第一个元素
+//第二个元素就是当前是什么类型，如果是hash的话，就是OBJ_HASH
+//会把当前迭代到的kv都取出来
 void scanCallback(void *privdata, const dictEntry *de) {
     void **pd = (void**) privdata;
-    list *keys = pd[0];
-    robj *o = pd[1];
+    list *keys = pd[0];//第一个元素是一个adlist
+    robj *o = pd[1];//第二个元素是一个表示当前结构类型
     robj *key, *val = NULL;
 
     if (o == NULL) {
+        //如果我们使用scan命令就没有特定的类型，扫描整个redis
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
-        sds keysds = dictGetKey(de);
-        key = createStringObject(keysds,sdslen(keysds));
+        //如果是obj_set，说明现在操作的对象是一个set类型，就把这个set集合的元素给取出来
+        sds keysds = dictGetKey(de);//获得对应的key值
+        key = createStringObject(keysds,sdslen(keysds));//根据这个key构建一个robj对象
     } else if (o->type == OBJ_HASH) {
+        //如果是obj_hash,获得该条目的key和value
         sds sdskey = dictGetKey(de);
         sds sdsval = dictGetVal(de);
-        key = createStringObject(sdskey,sdslen(sdskey));
-        val = createStringObject(sdsval,sdslen(sdsval));
+        key = createStringObject(sdskey,sdslen(sdskey));//构建key对象
+        val = createStringObject(sdsval,sdslen(sdsval));//构建value对象
     } else if (o->type == OBJ_ZSET) {
+        
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey,sdslen(sdskey));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
@@ -791,8 +799,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, key);
-    if (val) listAddNodeTail(keys, val);
+    listAddNodeTail(keys, key);//这里的keys就是对应的list的对象,把key添加到adlist中
+    if (val) listAddNodeTail(keys, val);//如果有value的话，同样把value放进去，如果是kv结构的话，都是按照第一个元素是key，第二个元素value
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -915,7 +923,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
-            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);//这里的fn就是scancallback
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
