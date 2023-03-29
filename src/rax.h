@@ -95,11 +95,14 @@
  */
 
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
+//rax的节点
 typedef struct raxNode {
-    uint32_t iskey:1;     /* Does this node contain a key? */
-    uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
-    uint32_t iscompr:1;   /* Node is compressed. */
-    uint32_t size:29;     /* Number of children, or compressed string len. */
+    //iskey和isnull iscompr，size都是标识字段，用来标识当前raxnode节点中存储了什么样的元素
+    uint32_t iskey:1;     /* Does this node contain a key? 用来标识这个节点是否包含一个key，占1位*/
+    uint32_t isnull:1;    /* Associated value is NULL (don't store it). 表示当前节点是否需要存储value-ptr指针*/
+    uint32_t iscompr:1;   /* Node is compressed. 当前节点是否为压缩节点*/
+    uint32_t size:29;     /* Number of children, or compressed string len.如果当前节点是压缩节点的话，这个字段表示压缩的字符的长度
+    如果不是的话，就表示子节点的个数 */
     /* Data layout is as follows:
      *
      * If node is not compressed we have 'size' bytes, one for each children
@@ -127,14 +130,15 @@ typedef struct raxNode {
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
-    unsigned char data[];
+    unsigned char data[];//具体数据存储的地方,里面包含指向子结点的数组
 } raxNode;
 
 typedef struct rax {
-    raxNode *head;
-    uint64_t numele;
-    uint64_t numnodes;
+    raxNode *head;//指向rax树的根节点，根节点不存储元素，
+    uint64_t numele;//记录rax树有多少个元素，rax中每个元素都可以用字符串表示，记录真正在rax树中存储了多少个元素
+    uint64_t numnodes;//记录rax树有多少个节点
 } rax;
+
 
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
  * a list of parent nodes to the caller. The nodes do not have a "parent"

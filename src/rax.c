@@ -30,6 +30,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+//redis需要使用到有序数据结构的时候，都使用到了rax树 ZXNMIMP；OWDKFWDKLQWL【DJ
+//可以实现按照ID来查找
+//redis还可以维护一个客户端列表，这个列表就是通过rax实现，存储客户端的ID，每个关联的客户端指针也存储在rax节点中，这样就能根据id找到对应的客户端
+
+
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -193,19 +198,20 @@ raxNode *raxNewNode(size_t children, int datafield) {
     if (node == NULL) return NULL;
     node->iskey = 0;
     node->isnull = 0;
-    node->iscompr = 0;
-    node->size = children;
+    node->iscompr = 0;//
+    node->size = children;//当前有0个子结点
     return node;
 }
 
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
+//创建一个rax实例，以及一个根节点
 rax *raxNew(void) {
-    rax *rax = rax_malloc(sizeof(*rax));
+    rax *rax = rax_malloc(sizeof(*rax));//创建一个rax实例
     if (rax == NULL) return NULL;
-    rax->numele = 0;
-    rax->numnodes = 1;
-    rax->head = raxNewNode(0,0);
+    rax->numele = 0;//设置当前元素的总值
+    rax->numnodes = 1;//当前有了一个元素
+    rax->head = raxNewNode(0,0);//开辟一个头节点
     if (rax->head == NULL) {
         rax_free(rax);
         return NULL;
