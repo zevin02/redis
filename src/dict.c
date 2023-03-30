@@ -230,7 +230,7 @@ int dictTryExpand(dict *d, unsigned long size) {
 
 //n的意思就是一次rehash，最多能处理多少个槽位置
 int dictRehash(dict *d, int n) {
-    int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    int empty_visits = n*10; /* Max number of empty buckets to visit. *///如果连续10个空槽位也直接返回
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     if (dict_can_resize == DICT_RESIZE_AVOID && 
         (DICTHT_SIZE(d->ht_size_exp[1]) / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_resize_ratio))
@@ -319,7 +319,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    if (d->pauserehash == 0) dictRehash(d,1);
+    if (d->pauserehash == 0) dictRehash(d,1);//如果当前的pause字段为0的时候才能够进行rehash，每次rehash迁移最多只能迁移一个槽位上的所有元素
 }
 
 /* Add an element to the target hash table */
@@ -368,7 +368,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     //计算写入的key位于哪个槽位
     //这个地方会根据对应的dict类型，调用提前注册好的hash函数，进行计算hash值
     //
-    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
+    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)//如果当前元素已经存在了，我们就不需要再进行查找了
         return NULL;
     //现在获得了相应的index位置
     /* Allocate the memory and store the new entry.
@@ -1110,7 +1110,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
 {
     unsigned long idx, table;
     dictEntry *he;
-    if (existing) *existing = NULL;
+    if (existing) *existing = NULL;//如果要查找的key已经存在了，我们即把这个已经存在的可以的entry条目赋值给existing，并进行返回
 
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)//这个是进行扩容使用的
