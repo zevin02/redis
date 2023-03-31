@@ -462,7 +462,11 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
  * means that the current node represents the key (that is, none of the
  * compressed node characters are needed to represent the key, just all
  * its parents nodes). */
-static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts) {
+//返回查找的字符串在rax树中能匹配到多少个字符串
+//如果放回值是len：在rax中存在该目标字符串，
+//如果返回值不为len：表示无法在rax中匹配到全部字符，返回值表示最多匹配多少个字符
+
+static inline size_t raxLowWalk(rax *rax/*查询的rax实例*/, unsigned char *s, size_t len/*查询的目标字符串和长度*/, raxNode **stopnode/*查找到最后停留的节点，也就是能完成匹配的最后字符串*/, raxNode ***plink/*用来存储stopppnode父节点中指向stopnode节点的指针*/, int *splitpos/*如果匹配到最后一个字符位于压缩节点中，返回该字符在压缩节点内部的索引*/, raxStack *ts/*保存父节点的栈*/) {
     raxNode *h = rax->head;
     raxNode **parentlink = &rax->head;
 
@@ -921,15 +925,16 @@ int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old)
 /* Find a key in the rax, returns raxNotFound special void pointer value
  * if the item was not found, otherwise the value associated with the
  * item is returned. */
+//再rax中进行查询
 void *raxFind(rax *rax, unsigned char *s, size_t len) {
     raxNode *h;
 
     debugf("### Lookup: %.*s\n", (int)len, s);
     int splitpos = 0;
-    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);//先遍历整个rax树来查询目标节点
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
         return raxNotFound;
-    return raxGetData(h);
+    return raxGetData(h);//从目标节点中读取数据
 }
 
 /* Return the memory address where the 'parent' node stores the specified

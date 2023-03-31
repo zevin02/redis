@@ -54,6 +54,33 @@ typedef struct {
     long long lval;
 } listpackEntry;
 
+/* 
+
+    listpack和ziplist的区别就是listpack的不需要存储前一个元素的字节大小，而是将自己元素的字节大小存储在元素最后backlen字段中
+    如果想要进行前向遍历，就需要往后退一个字节，退到前一个元素的backlen的字段中，就能够通过计算前一个元素的大小，就能够将指针指向前一个元素了
+    listpack
+
+
+
+    listpack的结构
+    <totalsize><elementnum><eleme1><eleme2><eleme3><eleme4><end>
+    * totalsize：表示listpack这个链表的总字节数字
+    * elementnum：表示listpack中存储了多少个元素
+    * elem：里面就是每个元素
+
+
+    entry的三个元素
+    <encoding><data><backlen>
+    1. encoding：可变长度，里面记录着编码类型和长度，如果是整形的话，encoding的后面几位直接存储的就是data的值
+              如果是字符串的话，encoding里面会记录着data的字节大小，encoding字段后面会跟着data
+    2. data：如果是字符串的话，就有data字段，里面存储的就是字符串，如果是整形的话，就没有data字段
+    3. backlen：可变长度，存储的是element中encoding+data字段的大小，不包含backlen本身
+            backlen字段最多占用5个字节，这个字段主要支持前向遍历
+*/
+
+
+
+
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
@@ -75,8 +102,8 @@ unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
 unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval);
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen, unsigned int skip);
-unsigned char *lpFirst(unsigned char *lp);
-unsigned char *lpLast(unsigned char *lp);
+unsigned char *lpFirst(unsigned char *lp);//获得element的第一个元素的指针
+unsigned char *lpLast(unsigned char *lp);//获得最后一个节点的位置
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
 size_t lpBytes(unsigned char *lp);
