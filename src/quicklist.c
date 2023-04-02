@@ -69,6 +69,7 @@ int quicklistisSetPackedThreshold(size_t sz) {
  * This is used only if we're limited by record count. when we're limited by
  * size, the maximum limit is bigger, but still safe.
  * 8k is a recommended / default size limit */
+ //默认listpack字节的最大长度
 #define SIZE_SAFETY_LIMIT 8192
 
 /* Maximum estimate of the listpack entry overhead.
@@ -127,13 +128,13 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 quicklist *quicklistCreate(void) {
     struct quicklist *quicklist;
 
-    quicklist = zmalloc(sizeof(*quicklist));
-    quicklist->head = quicklist->tail = NULL;
+    quicklist = zmalloc(sizeof(*quicklist));//初始化一个quicklist结构
+    quicklist->head = quicklist->tail = NULL;//双向循环链表
     quicklist->len = 0;
     quicklist->count = 0;
-    quicklist->compress = 0;
-    quicklist->fill = -2;
-    quicklist->bookmark_count = 0;
+    quicklist->compress = 0;//0表示部队任何节点压缩
+    quicklist->fill = -2;//-2表示当前listpack中最大存放的字节数为8kb
+    quicklist->bookmark_count = 0;//当前quicklistnode节点个数为0
     return quicklist;
 }
 
@@ -163,10 +164,11 @@ void quicklistSetOptions(quicklist *quicklist, int fill, int depth) {
 }
 
 /* Create a new quicklist with some default parameters. */
+//创建quicklist
 quicklist *quicklistNew(int fill, int compress) {
-    quicklist *quicklist = quicklistCreate();
-    quicklistSetOptions(quicklist, fill, compress);
-    return quicklist;
+    quicklist *quicklist = quicklistCreate();//创建一个空的quicklist实例
+    quicklistSetOptions(quicklist, fill, compress);//初始化compress和fill两个字段
+    return quicklist;//
 }
 
 REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
@@ -447,10 +449,11 @@ REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
     __quicklistInsertNode(quicklist, old_node, new_node, 1);
 }
 
+//这个分支只有在小于0的时候有效
 REDIS_STATIC int
 _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
                                                const int fill) {
-    if (fill >= 0)
+    if (fill >= 0)//大于0的话，就直接放回了
         return 0;
 
     size_t offset = (-fill) - 1;
@@ -466,12 +469,13 @@ _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 }
 
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
+//检查当前头部节点的listpack能否写入新的element
 
 REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
                                            const int fill, const size_t sz) {
     if (unlikely(!node))
         return 0;
-
+    //检查当前节点是否为PLAIN类型的节点，如果是的话，这个node就被独占了，不能往里添加别的数据
     if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz)))
         return 0;
 
@@ -480,14 +484,15 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
      * below the lowest limit of 4k (see optimization_level).
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
-    size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
+
+    size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;//插入一下插入新元素值后，这个listpack的状态
+    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))//插入新元素值后的listpack不会超出预订范围
         return 1;
     /* when we return 1 above we know that the limit is a size limit (which is
      * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-    else if (!sizeMeetsSafetyLimit(new_sz))
+    else if (!sizeMeetsSafetyLimit(new_sz))//为正数，检查一下listpack的字节长度，最长不能超过8k，
         return 0;
-    else if ((int)node->count < fill)
+    else if ((int)node->count < fill)//node的元素个数，小于设置的fill参数
         return 1;
     else
         return 0;
@@ -522,43 +527,50 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
         (node)->sz = lpBytes((node)->entry);                                   \
     } while (0)
 
+//创建了一个超大的节点
 static quicklistNode* __quicklistCreatePlainNode(void *value, size_t sz) {
     quicklistNode *new_node = quicklistCreateNode();
     new_node->entry = zmalloc(sz);
-    new_node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
-    memcpy(new_node->entry, value, sz);
+    new_node->container = QUICKLIST_NODE_CONTAINER_PLAIN;//container指向了plain，说明这是一个超大的节点
+    memcpy(new_node->entry, value, sz);//将value的数据拷贝到entry里面，此时entry只指向这一个元素，而不是一个listpack
     new_node->sz = sz;
-    new_node->count++;
+    new_node->count++;//quicklistnode代表的节点数++
     return new_node;
 }
-
+//
 static void __quicklistInsertPlainNode(quicklist *quicklist, quicklistNode *old_node,
                                        void *value, size_t sz, int after) {
     __quicklistInsertNode(quicklist, old_node, __quicklistCreatePlainNode(value, sz), after);
-    quicklist->count++;
+    quicklist->count++;//
 }
 
 /* Add new entry to head node of quicklist.
  *
  * Returns 0 if used existing head.
  * Returns 1 if new head created. */
+//头插
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
 
-    if (unlikely(isLargeElement(sz))) {
-        __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, 0);
+    if (unlikely(isLargeElement(sz))) {//不太可能执行到的分支，碰到超过1g大小的元素，所以预取指令的优先级比较低
+        __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, 0);//创建了一个node节点，entry指向了这个超大的元素
         return 1;
     }
-
+    
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
-        quicklist->head->entry = lpPrepend(quicklist->head->entry, value, sz);
+        //头部节点允许添加元素
+        quicklist->head->entry = lpPrepend(quicklist->head->entry, value, sz);//直接向头节点的listpack中添加元素
         quicklistNodeUpdateSz(quicklist->head);
     } else {
-        quicklistNode *node = quicklistCreateNode();
-        node->entry = lpPrepend(lpNew(0), value, sz);
+        //初始化一个新的quicklistnode
+        //处理quicklistnode分裂的情况，头节点的listpack长度达到了上限，需要重新初始化一个quicklistnode
+        quicklistNode *node = quicklistCreateNode();//创建一个quicklistnode节点
+        node->entry = lpPrepend(lpNew(0), value, sz);//先创建一个listpack，有最小的元素
+        //往listpack中插入元素value，占用大小为sz字节
 
         quicklistNodeUpdateSz(node);
+        //在有新的
         _quicklistInsertNodeBefore(quicklist, quicklist->head, node);
     }
     quicklist->count++;
@@ -1590,6 +1602,8 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 }
 
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
+//往quicklist中插入元素
+//value就是插入元素的值，sz就是插入元素的字节大小
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where) {
     /* The head and tail should never be compressed (we don't attempt to decompress them) */
@@ -1597,11 +1611,11 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
         assert(quicklist->head->encoding != QUICKLIST_NODE_ENCODING_LZF);
     if (quicklist->tail)
         assert(quicklist->tail->encoding != QUICKLIST_NODE_ENCODING_LZF);
-
+    //判断是从头部插入元素还是从尾部插入元素
     if (where == QUICKLIST_HEAD) {
-        quicklistPushHead(quicklist, value, sz);
+        quicklistPushHead(quicklist, value, sz);//头插
     } else if (where == QUICKLIST_TAIL) {
-        quicklistPushTail(quicklist, value, sz);
+        quicklistPushTail(quicklist, value, sz);//尾插
     }
 }
 

@@ -985,10 +985,11 @@ unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char 
 }
 
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
+//lp就是这个listpack的指针，s是要插入元素的指针，slen是要插入元素的字节大小
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
-    unsigned char *p = lpFirst(lp);
-    if (!p) return lpAppend(lp, s, slen);
-    return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL);
+    unsigned char *p = lpFirst(lp);//获得第一个元素的指针
+    if (!p) return lpAppend(lp, s, slen);//如果p不存在，也就是当前一个元素都没有，就会第一次往listpack中插入元素
+    return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL);//当前的listpack中有元素，就进行对listpack进行头插
 }
 
 /* Append the specified integer element 'lval' at the head of the listpack. */
@@ -1001,9 +1002,10 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
 /* Append the specified element 'ele' of length 'size' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
+//往listpack中插入节点，lp就是对应的listpack指针，ele要插入元素的指针，size要插入元素的字节大小，将元素插入到listpack的最后，相当于对listpack进行尾插
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
-    uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    unsigned char *eofptr = lp + listpack_bytes - 1;
+    uint64_t listpack_bytes = lpGetTotalBytes(lp);//计算全部的字节大小
+    unsigned char *eofptr = lp + listpack_bytes - 1;//指向eof位置，因为这个位置要进行插入节点了
     return lpInsert(lp,ele,NULL,size,eofptr,LP_BEFORE,NULL);
 }
 
