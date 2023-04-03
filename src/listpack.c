@@ -696,15 +696,16 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
  * Otherwise if the element is encoded as a string a pointer to the string (pointing
  * inside the listpack itself) is returned, and 'slen' is set to the length of the
  * string. */
+
 unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval) {
     unsigned char *vstr;
     int64_t ele_len;
 
     vstr = lpGet(p, &ele_len, NULL);
-    if (vstr) {
+    if (vstr) {//如果是字符串，则将slen的长度设置成字符串的字节大小
         *slen = ele_len;
     } else {
-        *lval = ele_len;
+        *lval = ele_len;//否则，
     }
     return vstr;
 }
@@ -902,7 +903,7 @@ unsigned char *lpInsert(unsigned char *lp/*目标的listpack对象*/, unsigned c
         long lendiff = (enclen+backlen_size)-replaced_len;
         memmove(dst+replaced_len+lendiff,
                 dst+replaced_len,
-                old_listpack_bytes-poff-replaced_len);
+                old_listpack_bytes-poff-replaced_len);//内存向前移动,把后面的都往前挪动
     }
 
     /* Realloc after: we need to free space. */

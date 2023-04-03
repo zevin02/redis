@@ -55,7 +55,7 @@
 //2.对于修改，插入，删除元素的时候，listpack的效率就比较低，需要进行一个内存拷贝，尤其在一块连续的空间很大的时候，依次内存拷贝会涉及到大量的数据
 //redis为了同时使用这两个结构的优点，规避两者的缺点，就出现了quicklist的数据结构了，所以每个node中的listpack都是比较小的listpack（会有一定的阀值），避免大的listpack出现，而listpack中存了很多元素可以减少内存碎片出现
 
-//quicklist这种双端链表的使用是频繁的jinxing
+//quicklist这种双端链表的使用是频繁的对
 
 typedef struct quicklistNode {
     struct quicklistNode *prev;//指向前一个quicklistnode节点
@@ -134,8 +134,8 @@ typedef struct quicklist {
 typedef struct quicklistIter {
     quicklist *quicklist;//指向当前的quicklist实例
     quicklistNode *current;//指向迭代到的quicklistnode节点
-    unsigned char *zi; /* points to the current element 指向当前的listpack节点*/
-    long offset; /* offset in current listpack 当前的entry在listpack中的偏移量，也就是第几个元素*/
+    unsigned char *zi; /* points to the current element in the corresponding listpack*/
+    long offset; /* offset in current listpack 当前的entry在listpack中的偏移量，也就是第几个元素（从0开始），offset=-1说明当前没有定位到任何的quicklistnode上，或者定位到的元素中已经没有元素了。*/
     int direction;//当前quicklist的迭代方向，start_head:正向迭代，start_tail反向迭代
 } quicklistIter;
 
