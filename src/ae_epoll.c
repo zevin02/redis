@@ -30,11 +30,13 @@
 
 
 #include <sys/epoll.h>
+//redis使用aeApiState对epoll select evport四种IO多路复用进行适配，让上层感知不到系统实现的差异
 
 typedef struct aeApiState {
     int epfd;
     struct epoll_event *events;
 } aeApiState;
+
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));

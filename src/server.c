@@ -413,7 +413,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor *///默认支持扩容
+    NULL                       /* val destructor */
+    //未指定expandallow，所以默认支持扩容
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -428,7 +429,7 @@ dictType zsetDictType = {
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
-//redis本省就是一个比较调性的kv数据库，所以redis的DB也是一个比较大型的一个哈希表
+//redis本省就是一个kv数据库，所以redis的DB也是一个比较大型的一个哈希表
 //这里定义了一个dbdictype的dictype的全局变量，并进行了初始化
 //key是一个字符床，而value是可以各种的数据类型如List,Hash,String,Set and forth
 
@@ -456,6 +457,7 @@ dictType dbExpiresDictType = {
 };
 
 /* Command table. sds string -> command struct pointer. */
+//这个地方的key是一个string，value是一个rediscommand类型
 dictType commandTableDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
@@ -2023,9 +2025,10 @@ void initServerConfig(void) {
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
+    //在初始化server函数中，初始化commands这个dict实例，
     server.commands = dictCreate(&commandTableDictType);
     server.orig_commands = dictCreate(&commandTableDictType);
-    populateCommandTable();
+    populateCommandTable();//
 
     /* Debugging */
     server.watchdog_period = 0;
@@ -2454,7 +2457,7 @@ void makeThreadKillable(void) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
-
+//初始化服务器
 void initServer(void) {
     int j;
 
@@ -2462,7 +2465,7 @@ void initServer(void) {
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
     makeThreadKillable();
-
+    //这个server就是redisServer的结构体对象
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
@@ -2562,16 +2565,17 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    //初始化redisServer中的dbnum个redisDb实例
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType);
-        server.db[j].expires = dictCreate(&dbExpiresDictType);
-        server.db[j].expires_cursor = 0;
-        server.db[j].blocking_keys = dictCreate(&keylistDictType);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].dict = dictCreate(&dbDictType);//这个里面存的就是键值对信息
+        server.db[j].expires = dictCreate(&dbExpiresDictType);//这个里面存储的就是expire信息
+        server.db[j].expires_cursor = 0;//当前
+        server.db[j].blocking_keys = dictCreate(&keylistDictType);//这个blocking里面的key是对应的一个key，而value就是一个obj
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);//
         server.db[j].watched_keys = dictCreate(&keylistDictType);
-        server.db[j].id = j;
+        server.db[j].id = j;//id里面就是对应的数据库边好
         server.db[j].avg_ttl = 0;
-        server.db[j].defrag_later = listCreate();
+        server.db[j].defrag_later = listCreate();//使用双向链表来操作
         server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
@@ -2903,7 +2907,7 @@ int populateCommandStructure(struct redisCommand *c) {
     populateCommandLegacyRangeSpec(c);
 
     /* Assign the ID used for ACL. */
-    c->id = ACLGetCommandID(c->fullname);
+    c->id = ACLGetCommandID(c->fullname);//把fullname对应生成一个id
 
     /* Handle subcommands */
     if (c->subcommands) {
@@ -2925,6 +2929,7 @@ extern struct redisCommand redisCommandTable[];
 
 /* Populates the Redis Command Table dict from the static table in commands.c
  * which is auto generated from the json files in the commands folder. */
+//将rediscommandtable填充到command中，后续命令查询，查询就从O（n）就变成了O（1）
 void populateCommandTable(void) {
     int j;
     struct redisCommand *c;
@@ -2936,8 +2941,8 @@ void populateCommandTable(void) {
 
         int retval1, retval2;
 
-        c->fullname = sdsnew(c->declared_name);
-        if (populateCommandStructure(c) == C_ERR)
+        c->fullname = sdsnew(c->declared_name);//fullname就是一个sds类型的declared_name
+        if (populateCommandStructure(c) == C_ERR)//对每一个命令进行一个填充信息，
             continue;
 
         retval1 = dictAdd(server.commands, sdsdup(c->fullname), c);

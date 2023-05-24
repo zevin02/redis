@@ -1177,7 +1177,7 @@ commandHistory EXISTS_History[] = {
 {0}
 };
 
-/* EXISTS tips */
+/* EXISTS tips ，给客户端使用的提示信息*/
 const char *EXISTS_tips[] = {
 "request_policy:multi_shard",
 "response_policy:agg_sum",
@@ -4418,6 +4418,11 @@ struct redisCommand CONFIG_Subcommands[] = {
 #define DBSIZE_History NULL
 
 /* DBSIZE tips */
+/*
+    请求和响应的策略
+    request:all_shared就是告诉proxy把dbsize的命令发到所有的redis shard
+    response:agg_sum告诉proxy累加所有的redis shard返回值
+*/
 const char *DBSIZE_tips[] = {
 "request_policy:all_shards",
 "response_policy:agg_sum",
@@ -7140,6 +7145,7 @@ struct redisCommandArg WATCH_Args[] = {
 };
 
 /* Main command table */
+//初始化redisCoomand，这下面就是支持的一部分命令
 struct redisCommand redisCommandTable[] = {
 /* bitmap */
 {"bitcount","Count set bits in a string","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,BITCOUNT_History,BITCOUNT_tips,bitcountCommand,-2,CMD_READONLY,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITCOUNT_Args},

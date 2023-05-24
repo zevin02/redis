@@ -53,9 +53,9 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
-static rax *commandId = NULL; /* Command name to id mapping */
+static rax *commandId = NULL; /* Command name to id mapping 把所有的命令名称都放到一个压缩前缀数里面*/
 
-static unsigned long nextid = 0; /* Next command id that has not been assigned */
+static unsigned long nextid = 0; /* Next command id that has not been assigned rediscommand中每插入一个命令，就会将对应id自增*/
 
 struct ACLCategoryItem {
     const char *name;
@@ -1457,16 +1457,19 @@ unsigned long ACLGetCommandID(sds cmdname) {
     sds lowername = sdsdup(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
-    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
+
+    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));//根据相应的cmdname获得相应存储在rax树中的id
     if (id != raxNotFound) {
+        //当前这个cmd已经存在了，所以直接把当前的id放回即可
         sdsfree(lowername);
         return (unsigned long)id;
     }
+
     raxInsert(commandId,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);
     unsigned long thisid = nextid;
-    nextid++;
+    nextid++;//执行完的话就把nextid给添加上去
 
     /* We never assign the last bit in the user commands bitmap structure,
      * this way we can later check if this bit is set, understanding if the
@@ -1477,7 +1480,7 @@ unsigned long ACLGetCommandID(sds cmdname) {
      * default (loaded via modules). This is useful when rewriting the ACLs
      * with ACL SAVE. */
     if (nextid == USER_COMMAND_BITS_COUNT-1) nextid++;
-    return thisid;
+    return thisid;//返回当前的id
 }
 
 /* Clear command id table and reset nextid to 0. */

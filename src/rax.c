@@ -911,6 +911,7 @@ oom:
 
 /* Overwriting insert. Just a wrapper for raxGenericInsert() that will
  * update the element if there is already one for the same key. */
+//这里的s就是相等于rax树里面的一个key，而data就是这个key指向的一个value
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     return raxGenericInsert(rax,s,len,data,old,1);
 }
