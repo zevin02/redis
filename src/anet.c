@@ -60,14 +60,14 @@ static void anetSetError(char *err, const char *fmt, ...)
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
     va_end(ap);
 }
-
+//设置是否阻塞
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
     /* Set the socket blocking (if non_block is zero) or non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
-    if ((flags = fcntl(fd, F_GETFL)) == -1) {
+    if ((flags = fcntl(fd, F_GETFL)) == -1) {//先获得fd的阻塞flags
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
         return ANET_ERR;
     }
@@ -78,11 +78,11 @@ int anetSetBlock(char *err, int fd, int non_block) {
         return ANET_OK;
 
     if (non_block)
-        flags |= O_NONBLOCK;
+        flags |= O_NONBLOCK;//非阻塞设置上相应的符号
     else
         flags &= ~O_NONBLOCK;
 
-    if (fcntl(fd, F_SETFL, flags) == -1) {
+    if (fcntl(fd, F_SETFL, flags) == -1) {//给fd设置上非阻塞的状态
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
         return ANET_ERR;
     }
@@ -256,7 +256,7 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     freeaddrinfo(info);
     return ANET_OK;
 }
-
+//设置端口复用
 static int anetSetReuseAddr(char *err, int fd) {
     int yes = 1;
     /* Make sure connection-intensive things like the redis benchmark
@@ -408,13 +408,13 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
-    if (bind(s,sa,len) == -1) {
+    if (bind(s,sa,len) == -1) {//绑定地址
         anetSetError(err, "bind: %s", strerror(errno));
         close(s);
         return ANET_ERR;
     }
 
-    if (listen(s, backlog) == -1) {
+    if (listen(s, backlog) == -1) {//监听
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);
         return ANET_ERR;
@@ -430,35 +430,40 @@ static int anetV6Only(char *err, int s) {
     }
     return ANET_OK;
 }
-
+//bindaddr就是我们要绑定的ip地址 
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;
     char _port[6];  /* strlen("65535") */
+    //addrinfo时c语言中描述地址的信息
+    //hints里面存储地址信息的首选项
     struct addrinfo hints, *servinfo, *p;
 
-    snprintf(_port,6,"%d",port);
+    snprintf(_port,6,"%d",port);//将端口号转化成字符串放到 _port数组中
     memset(&hints,0,sizeof(hints));
-    hints.ai_family = af;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;    /* No effect if bindaddr != NULL */
-    if (bindaddr && !strcmp("*", bindaddr))
+    hints.ai_family = af;//设置地址族，AF_INET
+    hints.ai_socktype = SOCK_STREAM;//设置套接字的类型为TCP协议
+    hints.ai_flags = AI_PASSIVE;    /* No effect if bindaddr != NULL ,表示返回可被绑定的地址*/
+    if (bindaddr && !strcmp("*", bindaddr))//这个时监听任意的ipv4地址
         bindaddr = NULL;
-    if (af == AF_INET6 && bindaddr && !strcmp("::*", bindaddr))
+    if (af == AF_INET6 && bindaddr && !strcmp("::*", bindaddr))//监听任意的ipv6地址
         bindaddr = NULL;
-
+    //获得地址信息，将数据保存在serverinfo中
+    //getaddrinfo就是将主机名和服务名转化成ip地址和端口号的函数
+    //可以自动切换
     if ((rv = getaddrinfo(bindaddr,_port,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+    //p里面就是根据主机名和服务名生成的
     for (p = servinfo; p != NULL; p = p->ai_next) {
-        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
+        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)//创建套接字，如果创建不成功就需要重新在进来
             continue;
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
-        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
-        if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) s = ANET_ERR;
-        goto end;
+        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;//设置端口复用
+        if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) s = ANET_ERR;//监听套接字
+        goto end;//其中的一个套接字的全流程都成功了，就离开
     }
     if (p == NULL) {
         anetSetError(err, "unable to bind socket, errno: %d", errno);
@@ -467,7 +472,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
 error:
     if (s != -1) close(s);
-    s = ANET_ERR;
+    s = ANET_ERR;//流程中处理失败了
 end:
     freeaddrinfo(servinfo);
     return s;
@@ -475,12 +480,12 @@ end:
 
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);//IPV4
 }
 
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);//IPV6
 }
 
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
@@ -513,11 +518,11 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         /* Use the accept4() call on linux to simultaneously accept and
          * set a socket as non-blocking. */
 #ifdef HAVE_ACCEPT4
-        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);//获得客户端的文件描述符，并且把对方的数据存储再sa中
 #else
         fd = accept(s,sa,len);
 #endif
-    } while(fd == -1 && errno == EINTR);
+    } while(fd == -1 && errno == EINTR);//如果fd=-1说明没有连接成功，就需要继续获得对应的套接字
     if (fd == -1) {
         anetSetError(err, "accept: %s", strerror(errno));
         return ANET_ERR;
@@ -538,17 +543,19 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 
 /* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
  * returns the new socket FD, or -1 on error. */
+//serversock是服务器一端监听连接的fd
 int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
+    //调用accept获得相应的文件描述符
     if ((fd = anetGenericAccept(err,serversock,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin_port);
+        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);//把对方的ip地址从sa中添加到ip中
+        if (port) *port = ntohs(s->sin_port);//如果端口存在，就把对方的port放在port上
     } else {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);

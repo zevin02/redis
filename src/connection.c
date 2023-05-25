@@ -48,7 +48,7 @@
  *    These logical handlers may or may not correspond to actual AE events,
  *    depending on the implementation (for TCP they are; for TLS they aren't).
  */
-
+//这个就是一个普通的socket连接,这个就是一个connection类型
 ConnectionType CT_Socket;
 
 /* When a connection is created we must know its type already, but the
@@ -73,7 +73,7 @@ ConnectionType CT_Socket;
  * 3. The container_of() approach is anyway risky because connections may
  * be embedded in different structs, not just client.
  */
-
+//创建一个connection实例
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
@@ -92,6 +92,7 @@ connection *connCreateSocket() {
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
  */
+//创建一个connection实例
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
     conn->fd = fd;
@@ -162,7 +163,7 @@ static void connSocketClose(connection *conn) {
 
     zfree(conn);
 }
-
+//向套接字写入数据
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
     int ret = write(conn->fd, data, data_len);
     if (ret < 0 && errno != EAGAIN) {
@@ -177,9 +178,9 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
 
     return ret;
 }
-
+//writev可以向套接字写入多块连续不同的buf空间
 static int connSocketWritev(connection *conn, const struct iovec *iov, int iovcnt) {
-    int ret = writev(conn->fd, iov, iovcnt);
+    int ret = writev(conn->fd, iov, iovcnt);//把数据写入到conn->fd中,数据都在iov中，iovcnt表示数组的个数
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -216,7 +217,7 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
     if (conn->state != CONN_STATE_ACCEPTING) return C_ERR;
     conn->state = CONN_STATE_CONNECTED;
 
-    connIncrRefs(conn);
+    connIncrRefs(conn);//增加引用计数
     if (!callHandler(conn, accept_handler)) ret = C_ERR;
     connDecrRefs(conn);
 

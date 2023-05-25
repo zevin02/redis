@@ -2320,11 +2320,12 @@ void closeSocketListeners(socketFds *sfd) {
  * This works atomically for all socket fds */
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     int j;
-
+    //为监听的每个文件描述符都注册上accept回调函数
     for (j = 0; j < sfd->count; j++) {
+        //为每个文件描述符注册上事件和回调函数,回调是accept_handler
         if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
             /* Rollback */
-            for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+            for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);//如果其中有一个没有成功注册，前面就要全部删除
             return C_ERR;
         }
     }
@@ -2350,8 +2351,9 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
 int listenToPort(int port, socketFds *sfd) {
+    //底层依赖socket，bind，listen函数，并使用fcntl设置所有socket为非阻塞
     int j;
-    char **bindaddr = server.bindaddr;
+    char **bindaddr = server.bindaddr;//这个里面存储的就是所有转换好的ip地址
 
     /* If we have no bind address, we don't listen on a TCP socket */
     if (server.bindaddr_count == 0) return C_OK;
@@ -2361,10 +2363,10 @@ int listenToPort(int port, socketFds *sfd) {
         int optional = *addr == '-';
         if (optional) addr++;
         if (strchr(addr,':')) {
-            /* Bind IPv6 address. */
-            sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
+            /* Bind IPv6 address. 绑定IPV6地址,addr就是需要绑定的ip地址*/
+            sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);//获得相应的文件描述符
         } else {
-            /* Bind IPv4 address. */
+            /* Bind IPv4 address.绑定ipv4地址 */
             sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
         if (sfd->fd[sfd->count] == ANET_ERR) {
@@ -2384,9 +2386,9 @@ int listenToPort(int port, socketFds *sfd) {
             return C_ERR;
         }
         if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
-        anetNonBlock(NULL,sfd->fd[sfd->count]);
+        anetNonBlock(NULL,sfd->fd[sfd->count]);//该文件描述符设置为非阻塞
         anetCloexec(sfd->fd[sfd->count]);
-        sfd->count++;
+        sfd->count++;//添加成功就把count字段加1
     }
     return C_OK;
 }
@@ -2522,7 +2524,7 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
-    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);//可以监听的最大文件描述符个数时maxclient+128(预留)
     if (server.el == NULL) {
         serverLog(LL_WARNING,
             "Failed creating the event loop. Error message: '%s'",
@@ -2532,6 +2534,7 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    // 监听指定的地址
     if (server.port != 0 &&
         listenToPort(server.port,&server.ipfd) == C_ERR) {
         /* Note: the following log text is matched by the test suite. */
@@ -2648,6 +2651,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    //为ipdf中的所有地址注册监听
     if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
@@ -7101,8 +7105,9 @@ int main(int argc, char **argv) {
     } else {
         serverLog(LL_WARNING, "Configuration loaded");
     }
-
+    //初始化服务器
     initServer();
+
     if (background || server.pidfile) createPidFile();
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
@@ -7152,7 +7157,7 @@ int main(int argc, char **argv) {
             }
         }
         if (server.ipfd.count > 0 || server.tlsfd.count > 0)
-            serverLog(LL_NOTICE,"Ready to accept connections");
+            serverLog(LL_NOTICE,"Ready to accept connections");//初始化完，并且监听的套接字都已经获取并绑定好了，就能开始接收连接了
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
@@ -7181,7 +7186,8 @@ int main(int argc, char **argv) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
-    aeMain(server.el);//执行到这个地方
+    //这个时候已经做好了可以在bind地址上的监听了，可以接收大量的客户端请求了
+    aeMain(server.el);//执行到这个地方,
     aeDeleteEventLoop(server.el);
     return 0;
 }

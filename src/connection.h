@@ -42,8 +42,8 @@ typedef struct connection connection;
 typedef enum {
     CONN_STATE_NONE = 0,
     CONN_STATE_CONNECTING,
-    CONN_STATE_ACCEPTING,
-    CONN_STATE_CONNECTED,
+    CONN_STATE_ACCEPTING,//刚刚创建的连接就是accept状态
+    CONN_STATE_CONNECTED,//建立连接成功后，就切换到connected状态
     CONN_STATE_CLOSED,
     CONN_STATE_ERROR
 } ConnectionState;
@@ -55,15 +55,23 @@ typedef enum {
 #define CONN_TYPE_TLS               2
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
-
+//里面的很多的回调函数，类似于函数的接口
+//主要是有两种类型，一个是CT_Socket(普通socket连接).CT_TLS（安全socket连接）
+//都有读写数据，建连这些基本操作，
 typedef struct ConnectionType {
+    //与客户端建立连接的connection中，可读事件还是可写事件都是ae_handler处理，所以arfileevent的rfileproc和wfileproc都是指向这个函数
+
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    //处理发起连接的请求，该服务器做客户端使用的时候，比如从库向主库建立连接
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
+    
     int (*write)(struct connection *conn, const void *data, size_t data_len);
     int (*writev)(struct connection *conn, const struct iovec *iov, int iovcnt);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
     void (*close)(struct connection *conn);
+    //封转了server处理建立连接请求的回调函数
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
+    //用于执行connection中的读写回调,也就是connection结构体中的write_handler回调和read_handler回调函数
     int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
     int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);
     const char *(*get_last_error)(struct connection *conn);
@@ -73,17 +81,22 @@ typedef struct ConnectionType {
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     int (*get_type)(struct connection *conn);
 } ConnectionType;
-
+//connection是对一个网络连接的一个抽象
 struct connection {
+    //网络连接的类型，其中记录了很多的回调函数
     ConnectionType *type;
+    //当前连接所处的状态
     ConnectionState state;
-    short int flags;
-    short int refs;
-    int last_errno;
+
+    short int flags;//标识符
+    short int refs;//当前连接被引用的次数
+    int last_errno;//最后一次发生错误的错误码
+    //当前连接关联的信息，该字段指向客户端实例
     void *private_data;
-    ConnectionCallbackFunc conn_handler;
-    ConnectionCallbackFunc write_handler;
-    ConnectionCallbackFunc read_handler;
+    //aeFileEent中的读写回调，就是这个地方的两个读写回调
+    ConnectionCallbackFunc conn_handler;//connect回调
+    ConnectionCallbackFunc write_handler;//write回调
+    ConnectionCallbackFunc read_handler;//read回调
     int fd;
 };
 

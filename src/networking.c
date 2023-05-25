@@ -1352,22 +1352,33 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+//redis初始化完之后，就会再6379端口上监听可读事件，即（客户端发送过来的建立连接的请求）
+//在createsocketaccepthandler中会将acceptTcpHandler（）作为listenfd的回调函数，记录到aeFileEvent中的rfileproc回调上面
+
+//这个就是处理客户端建立连接请求的回调函数，fd就是监听的文件描述符
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    //cport用来存储端口号，cfd用来存储新建立连接对应的文件描述符
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
+    char cip[NET_IP_STR_LEN];//存储ip地址的缓冲区
+    //避免因为这些变量因为没有被使用，而报错
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
 
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
+    while(max--) {//可能存在多个客户端建立连接的请求
+    //把对方的ip和端口号写入到cip和cport中返回
+    //这里出来，只要有连接就一定是成功连接，
+    
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);//获得建立连接的fd,提取放在cip和cport上
+        if (cfd == ANET_ERR) {//这个说明全部连接请求处理完毕
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
-            return;
+            return;//全部连接建立完毕
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);//把数据打印出来
+        //先通过conncreateacceptsocket创建一个connection实例表示新建的网络连接
+        //再通过使用accepthandler进行初始化
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
 }

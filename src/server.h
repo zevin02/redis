@@ -462,7 +462,7 @@ typedef enum {
 /* Sort operations */
 #define SORT_OP_GET 0
 
-/* Log levels */
+/* Log levels 这里设置日志等级，notice才会被输出*/
 #define LL_DEBUG 0
 #define LL_VERBOSE 1
 #define LL_NOTICE 2
@@ -1442,8 +1442,8 @@ struct malloc_stats {
 };
 
 typedef struct socketFds {
-    int fd[CONFIG_BINDADDR_MAX];
-    int count;
+    int fd[CONFIG_BINDADDR_MAX];//记录每个监听地址对应的文件描述符
+    int count;  //fd数组的个数
 } socketFds;
 
 /*-----------------------------------------------------------------------------
@@ -1577,15 +1577,15 @@ struct redisServer {
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
     /* Networking */
-    int port;                   /* TCP listening port 当前redis实例监听的端口*/
+    int port;                   /* TCP listening port 当前redis实例监听的端口6379*/
     int tls_port;               /* TLS listening port */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to 当前redis实例可以绑定的ip地址，默认会绑定当前地址的所有ip，最多16个ip*/
-    int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
+    int bindaddr_count;         /* Number of addresses in server.bindaddr[] bindaddr数组的大小,配置文件中规定的绑定的ip地址个数*/
     char *bind_source_addr;     /* Source address to bind on for outgoing connections */
     char *unixsocket;           /* UNIX socket path */
     unsigned int unixsocketperm; /* UNIX socket permission (see mode_t) */
-    socketFds ipfd;             /* TCP socket file descriptors */
+    socketFds ipfd;             /* TCP socket file descriptors 这个字段记录了当前redis server中每个监听地址对应的文件描述符*/
     socketFds tlsfd;            /* TLS socket file descriptors */
     int sofd;                   /* Unix socket file descriptor */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
