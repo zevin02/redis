@@ -2322,7 +2322,7 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     int j;
     //为监听的每个文件描述符都注册上accept回调函数
     for (j = 0; j < sfd->count; j++) {
-        //为每个文件描述符注册上事件和回调函数,回调是accept_handler
+        //为每个文件描述符注册上事件和回调函数,回调是accept_handler,因为是服务端的套接字，所以没有对应到一个客户端，所以设置为NULL即可
         if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
             /* Rollback */
             for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);//如果其中有一个没有成功注册，前面就要全部删除

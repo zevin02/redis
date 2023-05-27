@@ -157,7 +157,7 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
-
+//回调设置好了，就需要创建一个新的事件
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -172,7 +172,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     
     //设置event中某个元素对应的事件和其回调函数
     fe->mask |= mask;
-    if (mask & AE_READABLE) fe->rfileProc = proc;//设置其对应的回掉函数
+    if (mask & AE_READABLE) fe->rfileProc = proc;//设置其对应的回掉函数,普通读写的话，就是ae_handler
     if (mask & AE_WRITABLE) fe->wfileProc = proc;//读写事件都是proc
     fe->clientData = clientData;//
     if (fd > eventLoop->maxfd)
@@ -290,12 +290,12 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 
     te = eventLoop->timeEventHead;//获得时间事件的头节点
     maxId = eventLoop->timeEventNextId-1;//这个里面存储的是已经触发过的最大事件的id
-    monotime now = getMonotonicUs();//获得当前的时间
+    monotime now = getMonotonicUs();//获得当前的时间,获得一个微秒级的时间戳
     while(te) {//把整个链表进行遍历
         long long id;
 
         /* Remove events scheduled for deletion. */
-        if (te->id == AE_DELETED_EVENT_ID) {
+        if (te->id == AE_DELETED_EVENT_ID) {//事件id为-1就需要进行移除处理
             aeTimeEvent *next = te->next;
             /* If a reference exists for this timer event,
              * don't free it. This is currently incremented
@@ -337,7 +337,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             int retval;//下一次调用该事件剩余的事件
 
             id = te->id;
-            te->refcount++;
+            te->refcount++;//保证其他线程不会导致出现悬浮指针的问题
             retval = te->timeProc(eventLoop, id, te->clientData);//调用相应的回调，处理过期的时间事件
             te->refcount--;//处理过了，所以引用计数减少
             processed++;//处理的事件数加一
@@ -427,12 +427,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
-
+        //这个地方是epoll后，执行触发的事件
         for (j = 0; j < numevents; j++) {
             int fd = eventLoop->fired[j].fd;//获得文件描述符
             aeFileEvent *fe = &eventLoop->events[fd];//获得事件的类型，以及相应的回调函数,因为所有的事件都在aefileevent中定义
             int mask = eventLoop->fired[j].mask;//获得事件的类型
-            int fired = 0; /* Number of events fired for current fd. */
+            int fired = 0; /* Number of events fired for current fd. 处理的事件数*/
 
             /* Normally we execute the readable event first, and the writable
              * event later. This is useful as sometimes we may be able
@@ -455,9 +455,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * inverted. */
             //调用可读事件的提前注册的处理回调
             if (!invert && fe->mask & mask & AE_READABLE) {
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop,fd,fe->clientData,mask);//有事件触发，在这个地方触发事件
                 fired++;
-                fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
+                fe = &eventLoop->events[fd]; /* Refresh in case of resize. 刷新该fd的事件，可能被修改了*/
             }
 
             /* Fire the writable event. */

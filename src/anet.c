@@ -126,7 +126,7 @@ int anetCloexec(int fd) {
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
-
+    //将socket连接设置成keepalive，避免长时间没有连接导致断开
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
@@ -138,16 +138,16 @@ int anetKeepAlive(char *err, int fd, int interval)
      * set to 7200 by default on Linux. Modify settings to make the feature
      * actually useful. */
 
-    /* Send first probe after interval. */
+    /* Send first probe after interval. 这个规定了发送第一次探测所使用的时间*/
     val = interval;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {//设置tcp探测的隔离时间,keepidle是设置位val变量代表的值
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
     /* Send next probes after the specified interval. Note that we set the
      * delay as interval / 3, as we send three probes before detecting
-     * an error (see the next setsockopt call). */
+     * an error (see the next setsockopt call). 规定了第二次探测所用的时间*/
     val = interval/3;
     if (val == 0) val = 1;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
@@ -156,7 +156,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     }
 
     /* Consider the socket in error state after three we send three ACK
-     * probes without getting a reply. */
+     * probes without getting a reply. 指定了在发送3个ack探测没有回复后，就将该套接字设置为错误状态*/
     val = 3;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
@@ -175,10 +175,12 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     return ANET_OK;
 }
+//该套接字禁用了Nagle算法，发送方不会等待之前发送的数据被ACK确认，而立刻把数据发送出，这可以减少网络延迟，提高效率，发送了很多小的数据块
+//这对redis这种实时性很高的，要求快速响应的，就要求禁止nagle算法
 
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
-    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)//启用了
     {
         anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
         return ANET_ERR;
@@ -188,7 +190,7 @@ static int anetSetTcpNoDelay(char *err, int fd, int val)
 
 int anetEnableTcpNoDelay(char *err, int fd)
 {
-    return anetSetTcpNoDelay(err, fd, 1);
+    return anetSetTcpNoDelay(err, fd, 1);//这个是启动Naggle算法,减少网络拥塞和带宽的损耗
 }
 
 int anetDisableTcpNoDelay(char *err, int fd)

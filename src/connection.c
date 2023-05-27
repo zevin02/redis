@@ -76,8 +76,8 @@ ConnectionType CT_Socket;
 //创建一个connection实例
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
-    conn->type = &CT_Socket;
-    conn->fd = -1;
+    conn->type = &CT_Socket;//设置他为Socket类型而不是TLS 类型
+    conn->fd = -1;//初始化对应的fd
 
     return conn;
 }
@@ -94,9 +94,9 @@ connection *connCreateSocket() {
  */
 //创建一个connection实例
 connection *connCreateAcceptedSocket(int fd) {
-    connection *conn = connCreateSocket();
-    conn->fd = fd;
-    conn->state = CONN_STATE_ACCEPTING;
+    connection *conn = connCreateSocket();//创建一个connection实例
+    conn->fd = fd;//设置其fd
+    conn->state = CONN_STATE_ACCEPTING;//设置为accept状态
     return conn;
 }
 
@@ -210,12 +210,12 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
 
     return ret;
 }
-
+//接受一个新的连接，并执行连接成功时的回调函数
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     int ret = C_OK;
 
     if (conn->state != CONN_STATE_ACCEPTING) return C_ERR;
-    conn->state = CONN_STATE_CONNECTED;
+    conn->state = CONN_STATE_CONNECTED;//切换connection的状态,为已经连接的状态
 
     connIncrRefs(conn);//增加引用计数
     if (!callHandler(conn, accept_handler)) ret = C_ERR;
@@ -249,15 +249,17 @@ static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc fu
 }
 
 /* Register a read handler, to be called when the connection is readable.
- * If NULL, the existing handler is removed.
+ * If NULL, the existing handler is removed.,
  */
 static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
-    if (func == conn->read_handler) return C_OK;
+    if (func == conn->read_handler) return C_OK;//如果func和conn中的回调已经相同已经配置好了，就不需要继续操作了
 
-    conn->read_handler = func;
+    conn->read_handler = func;//并且又把readfromclinet指向conn的read_handler
     if (!conn->read_handler)
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
     else
+    //创建event实例。开始监听可读可写事件
+    //监听到这个这个可读事件的回调就是ae_handler，就是connSocketEventHandler()函数
         if (aeCreateFileEvent(server.el,conn->fd,
                     AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
     return C_OK;
@@ -274,7 +276,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 {
     UNUSED(el);
     UNUSED(fd);
-    connection *conn = clientData;
+    connection *conn = clientData;//获得客户端的连接
 
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {

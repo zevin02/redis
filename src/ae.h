@@ -76,7 +76,7 @@ typedef struct aeFileEvent {
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER),事件烟码，用来记录事件的发生 */
     aeFileProc *rfileProc;//发生可读事件，会调用rfileproc指向的函数来处理
     aeFileProc *wfileProc;//法身可写事件，同理
-    void *clientData;//指向对应的客户端对象
+    void *clientData;//指向对应的客户端对象,如果是服务端的，就设置为NULL
 } aeFileEvent;
 
 /* Time event structure */

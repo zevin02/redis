@@ -1125,7 +1125,7 @@ typedef struct client {
     /*1.客户端的基础信息*/
     uint64_t id;            /* Client incremental unique ID.记录了client的唯一id，client实例的自增id，默认时通过server.next_client_id自增得到 */
     //CLIENT——MULTI（1<<3）表示当前处于一个事务上下文中
-    uint64_t flags;         /* Client flags: CLIENT_* macros. 其中的每一位都代表一个状态*/
+    uint64_t flags;         /* Client flags: CLIENT_* macros. 其中的每一位都代表一个状态，如果为0,说明什么状态都没有*/
     connection *conn;       /* conn字段抽象了该client的客户端与server端的网络连接*/
     int resp;               /* RESP protocol version. Can be 2 or 3. resp是该client支持的协议，2和3分别代表RESP2协议和RESP3协议*/
 
@@ -1590,7 +1590,7 @@ struct redisServer {
     int sofd;                   /* Unix socket file descriptor */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
     socketFds cfd;              /* Cluster bus listening socket */
-    list *clients;              /* List of active clients 当前redis实例的客户端列表，客户端的最大空闲时长，单位是秒，当客户端超过该时长没和服务器互动，就会自动断开连接*/
+    list *clients;              /* List of active clients 当前redis实例的客户端列表，客户端的最大空闲时长，单位是秒，当客户端超过该时长没和服务器互动，就会自动断开连接,进行消息的广播的时候，就需要使用这个了*/
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
@@ -1603,7 +1603,7 @@ struct redisServer {
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
-    rax *clients_index;         /* Active clients dictionary by client ID. */
+    rax *clients_index;         /* Active clients dictionary by client ID. 这是一个rax树，key是client的id，value是该client节点,这个在查找特定的客户端和关闭客户端时候非常高效*/
     pause_type client_pause_type;      /* True if clients are currently paused */
     list *postponed_clients;       /* List of postponed clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
@@ -1701,7 +1701,7 @@ struct redisServer {
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
-    int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
+    int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. redis中该字段设置成300s，建立tcp连接300s不会断开连接(可以确保不会过早的断开连接，也不会持续的时间过长)*/
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
     int active_defrag_enabled;
@@ -1884,7 +1884,7 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
-    unsigned int maxclients;            /* Max number of simultaneous clients */
+    unsigned int maxclients;            /* Max number of simultaneous clients，最大同时能允许连接的客户端数量 */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     ssize_t maxmemory_clients;       /* Memory limit for total client buffers */
     int maxmemory_policy;           /* Policy for key eviction */

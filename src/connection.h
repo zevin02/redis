@@ -71,9 +71,9 @@ typedef struct ConnectionType {
     void (*close)(struct connection *conn);
     //封转了server处理建立连接请求的回调函数
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
-    //用于执行connection中的读写回调,也就是connection结构体中的write_handler回调和read_handler回调函数
-    int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
-    int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);
+    //用于执行connection中的读写回调,也就是connection结构体中的write_handler回调和read_handler回调函数，
+    int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);//这个指向readfromclient
+    int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);//这个指向writetoclient
     const char *(*get_last_error)(struct connection *conn);
     int (*blocking_connect)(struct connection *conn, const char *addr, int port, long long timeout);
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
@@ -84,7 +84,7 @@ typedef struct ConnectionType {
 //connection是对一个网络连接的一个抽象
 struct connection {
     //网络连接的类型，其中记录了很多的回调函数
-    ConnectionType *type;
+    ConnectionType *type;//这个主要有两种类型，一个是普通socket还有一个是TLS，都实现了专门的回调函数
     //当前连接所处的状态
     ConnectionState state;
 
@@ -97,7 +97,7 @@ struct connection {
     ConnectionCallbackFunc conn_handler;//connect回调
     ConnectionCallbackFunc write_handler;//write回调
     ConnectionCallbackFunc read_handler;//read回调
-    int fd;
+    int fd;     //该连接对应的文件描述符
 };
 
 /* The connection module does not deal with listening and accepting sockets,
@@ -117,7 +117,7 @@ struct connection {
  * connAccept() callers must always check the return value and on error (C_ERR)
  * a connClose() must be called.
  */
-
+//调用conn中的socket的accept回调
 static inline int connAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     return conn->type->accept(conn, accept_handler);
 }
@@ -193,7 +193,7 @@ static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc f
  * If NULL, the existing handler is removed.
  */
 static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
-    return conn->type->set_read_handler(conn, func);
+    return conn->type->set_read_handler(conn, func);//设置type的set_read_handler为readfromClient
 }
 
 /* Set a write handler, and possibly enable a write barrier, this flag is

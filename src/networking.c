@@ -88,14 +88,16 @@ int listMatchObjects(void *a, void *b) {
 
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
+//1.将客户端节点添加到server的客户端链表中
+//2.将client节点添加到rax树中，rax中的key就是client的id，而value就是client实例的指针，通过这个rax树，通过id快速找到对应的client实例
 void linkClient(client *c) {
-    listAddNodeTail(server.clients,c);
+    listAddNodeTail(server.clients,c);//添加该客户端到尾节点
     /* Note that we remember the linked list node where the client is stored,
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
-    c->client_list_node = listLast(server.clients);
+    c->client_list_node = listLast(server.clients);//获得该客户端在客户端链表中的位置，这样，在删除的时候，无需遍历，直接使用这个节点进行删除即可
     uint64_t id = htonu64(c->id);
-    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
+    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);//value就是对应的client实例
 }
 
 /* Initialize client authentication state.
@@ -118,26 +120,26 @@ int authRequired(client *c) {
 }
 
 client *createClient(connection *conn) {
-    client *c = zmalloc(sizeof(client));
+    client *c = zmalloc(sizeof(client));//创建一个client实例
 
     /* passing NULL as conn it is possible to create a non connected client.
      * This is useful since all the commands needs to be executed
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
-    if (conn) {
-        connEnableTcpNoDelay(conn);
-        if (server.tcpkeepalive)
-            connKeepAlive(conn,server.tcpkeepalive);
-        connSetReadHandler(conn, readQueryFromClient);
-        connSetPrivateData(conn, c);
+    if (conn) {//对新建连接进行一些配置
+        connEnableTcpNoDelay(conn);//将连接设置成非阻塞
+        if (server.tcpkeepalive)//
+            connKeepAlive(conn,server.tcpkeepalive);//设置TCP位keepalive
+        connSetReadHandler(conn, readQueryFromClient);//设置
+        connSetPrivateData(conn, c);//将connection的private_data指向client
     }
     c->buf = zmalloc(PROTO_REPLY_CHUNK_BYTES);
-    selectDb(c,0);
+    selectDb(c,0);//默认使用0号DB
     uint64_t client_id;
-    atomicGetIncr(server.next_client_id, client_id, 1);
+    atomicGetIncr(server.next_client_id, client_id, 1);//根据server.next_client_id原子性的自增，赋值给client_id
     c->id = client_id;
     c->resp = 2;
-    c->conn = conn;
+    c->conn = conn;//将客户端的连接进行匹配
     c->name = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
@@ -212,7 +214,7 @@ client *createClient(connection *conn) {
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
-    if (conn) linkClient(c);
+    if (conn) linkClient(c);//将client记录到server.clinets中
     initClientMultiState(c);
     return c;
 }
@@ -1224,10 +1226,10 @@ int islocalClient(client *c) {
 
     return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
 }
-
+//处理客户端的连接请求，包括验证客户端的生风，对保护模式的检查，和处理已经连接的客户端计数
 void clientAcceptHandler(connection *conn) {
-    client *c = connGetPrivateData(conn);
-
+    client *c = connGetPrivateData(conn);//获得当前连接对应的客户端
+    //判断是否为conected状态
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
         serverLog(LL_WARNING,
                 "Error accepting a client connection: %s",
@@ -1273,18 +1275,20 @@ void clientAcceptHandler(connection *conn) {
         }
     }
 
-    server.stat_numconnections++;
+    server.stat_numconnections++;//添加服务端已经连接的数量
+    //并向所有模块，发送已连接客户端事件的通知
     moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
                           REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED,
                           c);
 }
 
 #define MAX_ACCEPTS_PER_CALL 1000
+
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
-
+    //检查是否处于accepting状态,必须要处于accpeting状态，
     if (connGetState(conn) != CONN_STATE_ACCEPTING) {
         serverLog(LL_VERBOSE,
             "Accepted client connection in error state: %s (conn: %s)",
@@ -1301,7 +1305,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * if rejected. */
     if (listLength(server.clients) + getClusterConnectionsCount()
         >= server.maxclients)
-    {
+    {//检查当前连接的数量是否已经达到了server.maxclients指定的连接上限，当前redis实例以及集群其他实例之间的总连接数
         char *err;
         if (server.cluster_enabled)
             err = "-ERR max number of clients + cluster "
@@ -1320,7 +1324,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         return;
     }
 
-    /* Create connection and client */
+    /*
+        Create connection and client 创建一个client实例，对应到某个客户端,并注册监听新建连接的可读事件
+        对应的处理函数位ae_handler.同时将readQueryFromCLient在位ConntectionType的set_read_handler的回调函数
+    */
     if ((c = createClient(conn)) == NULL) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (conn: %s)",
@@ -1358,18 +1365,18 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
 //这个就是处理客户端建立连接请求的回调函数，fd就是监听的文件描述符
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     //cport用来存储端口号，cfd用来存储新建立连接对应的文件描述符
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;//ip和端口这里只是用来打印的
     char cip[NET_IP_STR_LEN];//存储ip地址的缓冲区
     //避免因为这些变量因为没有被使用，而报错
     UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
+    UNUSED(mask);//处理的事件类型也没用到
+    UNUSED(privdata);//该fd对应的客户端在连接的时候也没用到
 
     while(max--) {//可能存在多个客户端建立连接的请求
     //把对方的ip和端口号写入到cip和cport中返回
     //这里出来，只要有连接就一定是成功连接，
     
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);//获得建立连接的fd,提取放在cip和cport上
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);//获得建立连接客户端的fd,提取放在cip和cport上
         if (cfd == ANET_ERR) {//这个说明全部连接请求处理完毕
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
