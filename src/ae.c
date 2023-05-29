@@ -416,12 +416,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             tvp = &tv;
         }
 
-        if (eventLoop->beforesleep != NULL && flags & AE_CALL_BEFORE_SLEEP)
+        if (eventLoop->beforesleep != NULL && flags & AE_CALL_BEFORE_SLEEP)//在执行网络事件的时候，会调用该函数，释放IO线程锁，让io线程跑起来
             eventLoop->beforesleep(eventLoop);
         //在阻塞等待网络事件的时候，先调用beforesleep
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
-        numevents = aeApiPoll(eventLoop, tvp);//tvp这里阻塞的超时时长就是距离最近事件的时间差
+        numevents = aeApiPoll(eventLoop, tvp);//tvp这里阻塞的超时时长就是距离最近事件的时间差,把已经触发的事件都已经放入到fire数组中
         
         //获得数据之后。执行aftersleep
         /* After sleep callback. */

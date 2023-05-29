@@ -442,7 +442,7 @@ void *sdsAllocPtr(sds s) {
  * sdsIncrLen(s, nread);
  */
 void sdsIncrLen(sds s, ssize_t incr) {
-    unsigned char flags = s[-1];
+    unsigned char flags = s[-1];//获得他的类型
     size_t len;
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5: {
@@ -460,9 +460,9 @@ void sdsIncrLen(sds s, ssize_t incr) {
             break;
         }
         case SDS_TYPE_16: {
-            SDS_HDR_VAR(16,s);
+            SDS_HDR_VAR(16,s);//获得该sds的结构体的头部
             assert((incr >= 0 && sh->alloc-sh->len >= incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
-            len = (sh->len += incr);
+            len = (sh->len += incr);//将字节长度进行增加
             break;
         }
         case SDS_TYPE_32: {
@@ -479,7 +479,7 @@ void sdsIncrLen(sds s, ssize_t incr) {
         }
         default: len = 0; /* Just to avoid compilation warnings. */
     }
-    s[len] = '\0';
+    s[len] = '\0';//把最后一个字节设置为0
 }
 
 /* Grow the sds to have the specified length. Bytes that were not part of

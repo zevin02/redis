@@ -1570,6 +1570,7 @@ extern int ProcessingEventsWhileBlocked;
  *
  * The most important is freeClientsInAsyncFreeQueue but we also
  * call some other low-risk functions. */
+//处理网络事件之前先调用这个
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -1598,7 +1599,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
-    handleClientsWithPendingReadsUsingThreads();
+    
+    handleClientsWithPendingReadsUsingThreads();//在beforesleep中将server中的pending_clients进行负载均衡模式的分配给各r中的pending_clients进行负载均衡模式的分配给个线程来处理
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
     tlsProcessPendingData();
@@ -1679,7 +1681,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
-    handleClientsWithPendingWritesUsingThreads();
+    handleClientsWithPendingWritesUsingThreads();//处理写事件
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();

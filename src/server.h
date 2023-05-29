@@ -378,8 +378,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_NUM 8      /* Number of blocked states. */
 
 /* Client request types */
-#define PROTO_REQ_INLINE 1
-#define PROTO_REQ_MULTIBULK 2
+#define PROTO_REQ_INLINE 1      /*内联请求类型，一般是telnet发出来的*/
+#define PROTO_REQ_MULTIBULK 2   /*协议请求类型，通过redis-cli发送出来的都是这个类型*/
 
 /* Client classes for client limits, currently used only for
  * the max-client-output-buffer limit implementation. */
@@ -1156,7 +1156,7 @@ typedef struct client {
                                user is set to NULL the connection can do
                                anything (admin). */
 
-    int reqtype;            /* Request protocol type: PROTO_REQ_* 用来记录当前请求的格式*/
+    int reqtype;            /* Request protocol type: PROTO_REQ_* 用来记录当前请求的格式,请求的类型*/
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     /*
@@ -1593,7 +1593,7 @@ struct redisServer {
     list *clients;              /* List of active clients 当前redis实例的客户端列表，客户端的最大空闲时长，单位是秒，当客户端超过该时长没和服务器互动，就会自动断开连接,进行消息的广播的时候，就需要使用这个了*/
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
-    list *clients_pending_read;  /* Client has pending read socket buffers. */
+    list *clients_pending_read;  /* Client has pending read socket buffers. 多线程未决客户端链表,将clients实例分配给多个IO线程,进入到个各个IO线程相关联的io_threads_list中*/
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
 
@@ -1612,9 +1612,12 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. 这个字段就是原子类型的整数，他的自增时原子操作*/
     int protected_mode;         /* Don't accept external connections. */
+    //多线程模式下只使用一个主线程处理全部的IO，取值在1-128
+
     int io_threads_num;         /* Number of IO threads to use. */
-    int io_threads_do_reads;    /* Read and parse from IO threads? */
-    int io_threads_active;      /* Is IO threads currently active? */
+    int io_threads_do_reads;    /* Read and parse from IO threads? 是否使用IO线程读取和解析命令*/
+    int io_threads_active;      /* Is IO threads currently active? 是否开启了多线程模式*/
+    
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
@@ -1685,7 +1688,7 @@ struct redisServer {
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
     long long stat_io_reads_processed; /* Number of read events processed by IO / Main threads */
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
-    redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
+    redisAtomic long long stat_total_reads_processed; /* Total number of read events processed 记录已经处理了多少个读事件,通过这个字段我们可以了解redis的读取负载和度操作的负载情况*/
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */

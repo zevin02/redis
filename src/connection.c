@@ -259,7 +259,7 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
     else
     //创建event实例。开始监听可读可写事件
-    //监听到这个这个可读事件的回调就是ae_handler，就是connSocketEventHandler()函数
+    //监听到这个这个可读事件的回调就是ae_handler，就是connSocketEventHandler()函数,第三个放conection
         if (aeCreateFileEvent(server.el,conn->fd,
                     AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
     return C_OK;
@@ -277,7 +277,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     UNUSED(el);
     UNUSED(fd);
     connection *conn = clientData;//获得客户端的连接
-
+    //对conn的状态进行检查
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
@@ -306,7 +306,8 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
      * This is useful when, for instance, we want to do things
      * in the beforeSleep() hook, like fsync'ing a file to disk,
      * before replying to a client. */
-    int invert = conn->flags & CONN_FLAG_WRITE_BARRIER;
+    int invert = conn->flags & CONN_FLAG_WRITE_BARRIER;//默认是先处理可读事件，再处理可写事件
+    //如果在flag中设置标志，则翻转过来
 
     int call_write = (mask & AE_WRITABLE) && conn->write_handler;
     int call_read = (mask & AE_READABLE) && conn->read_handler;

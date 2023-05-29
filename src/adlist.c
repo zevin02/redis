@@ -267,7 +267,7 @@ listNode *listNext(listIter *iter)
 
     if (current != NULL) {
         if (iter->direction == AL_START_HEAD)//向前迭代
-            iter->next = current->next;
+            iter->next = current->next;//不断修改iter->next的值，进行向后迭代
         else
             iter->next = current->prev;
     }

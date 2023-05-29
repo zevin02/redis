@@ -49,7 +49,7 @@ typedef struct listIter {
 } listIter;
 
 typedef struct list {
-    listNode *head;
+    listNode *head;//第一个节点，实节点
     listNode *tail;
     //这个下面的就是为了实现多态链表的函数
     void *(*dup)(void *ptr);    //复制(拷贝)链表中节点值
