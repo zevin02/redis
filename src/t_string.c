@@ -323,10 +323,10 @@ void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
-
+//执行get的命令的逻辑
 int getGenericCommand(client *c) {
     robj *o;
-
+    //从redis db中查询value值，并放在o里面,返回的格式在第三个参数中进行设置
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return C_OK;
 
@@ -334,7 +334,7 @@ int getGenericCommand(client *c) {
         return C_ERR;
     }
 
-    addReplyBulk(c,o);
+    addReplyBulk(c,o);//对放回值o进行编码返回,返回值还是bukl类型
     return C_OK;
 }
 

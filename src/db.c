@@ -170,7 +170,7 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
-    robj *o = lookupKeyRead(c->db, key);
+    robj *o = lookupKeyRead(c->db, key);//在
     if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }

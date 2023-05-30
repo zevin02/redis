@@ -133,7 +133,7 @@ client *createClient(connection *conn) {
         connSetReadHandler(conn, readQueryFromClient);//设置
         connSetPrivateData(conn, c);//将connection的private_data指向client
     }
-    c->buf = zmalloc(PROTO_REPLY_CHUNK_BYTES);
+    c->buf = zmalloc(PROTO_REPLY_CHUNK_BYTES);//默认为16K
     selectDb(c,0);//默认使用0号DB
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);//根据server.next_client_id原子性的自增，赋值给client_id
@@ -257,8 +257,8 @@ void putClientInPendingWriteQueue(client *c) {
          * loop, we can try to directly write to the client sockets avoiding
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
-        c->flags |= CLIENT_PENDING_WRITE;
-        listAddNodeHead(server.clients_pending_write,c);
+        c->flags |= CLIENT_PENDING_WRITE;//节点全局设置write
+        listAddNodeHead(server.clients_pending_write,c);//将该客户端添加到pend_write队列中,等待多线程后续消费
     }
 }
 
@@ -309,8 +309,10 @@ int prepareClientToWrite(client *c) {
      * not put the client in pending write queue. Instead, it will be
      * done by handleClientsWithPendingReadsUsingThreads() upon return.
      */
+    //对client进行检查
+    //先检查c->buf和c->erply是否有数据，如果有数据就返回
     if (!clientHasPendingReplies(c) && io_threads_op == IO_THREADS_OP_IDLE)
-        putClientInPendingWriteQueue(c);
+        putClientInPendingWriteQueue(c);//将缓冲区的数据写入到pending_writing队列中
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
@@ -327,27 +329,27 @@ int prepareClientToWrite(client *c) {
  * zmalloc_usable_size() call. Writing beyond client->buf boundaries confuses
  * sanitizer and generates a false positive out-of-bounds error */
 REDIS_NO_SANITIZE("bounds")
-size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
+size_t _addReplyToBuffer(client *c, const char *s, size_t len) {//先将编码好的数据s写入到client->buf中
     size_t available = c->buf_usable_size - c->bufpos;
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
     if (listLength(c->reply) > 0) return 0;
 
-    size_t reply_len = len > available ? available : len;
-    memcpy(c->buf+c->bufpos,s,reply_len);
+    size_t reply_len = len > available ? available : len;//插入的元素字节大小
+    memcpy(c->buf+c->bufpos,s,reply_len);//把数据拷贝到c->buf中
     c->bufpos+=reply_len;
     /* We update the buffer peak after appending the reply to the buffer */
     if(c->buf_peak < (size_t)c->bufpos)
-        c->buf_peak = (size_t)c->bufpos;
+        c->buf_peak = (size_t)c->bufpos;//设置峰值
     return reply_len;
 }
 
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
-    listNode *ln = listLast(c->reply);
-    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
+    listNode *ln = listLast(c->reply);//获得最后reply中的最后一个节点
+    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;//获得一个当前节点对应的值
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
@@ -357,14 +359,14 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
     if (tail) {
         /* Copy the part we can fit into the tail, and leave the rest for a
          * new node */
-        size_t avail = tail->size - tail->used;
-        size_t copy = avail >= len? len: avail;
-        memcpy(tail->buf + tail->used, s, copy);
+        size_t avail = tail->size - tail->used;//计算可用的空间
+        size_t copy = avail >= len? len: avail;//计算需要给当前节点拷贝的长度
+        memcpy(tail->buf + tail->used, s, copy);//进行拷贝
         tail->used += copy;
         s += copy;
         len -= copy;
     }
-    if (len) {
+    if (len) {//len仍然存在，进行拷贝一个新节点添加元素
         /* Create a new node, make sure it is allocated to at
          * least PROTO_REPLY_CHUNK_BYTES */
         size_t usable_size;
@@ -380,7 +382,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         closeClientOnOutputBufferLimitReached(c, 1);
     }
 }
-
+//将编码好的数据s写入到buf或者reply链表中
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
@@ -395,8 +397,11 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
-    size_t reply_len = _addReplyToBuffer(c,s,len);
-    if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
+    size_t reply_len = _addReplyToBuffer(c,s,len);//先向buf缓冲区中写入数据，
+    if (len > reply_len) 
+    _addReplyProtoToList(c,s+reply_len,len-reply_len);//如果实际写入的数据超过buf的容量，,那么数据就会在buf中写一点，剩下的一些数据就到c->reply中了，就应该写到reply中
+    //发送的时候，先发送buf的数据，再发送reply的数据
+    //如果reply有数据，优先把reply填满，等reply数据被发送完毕，再填充buf的数据
 }
 
 /* -----------------------------------------------------------------------------
@@ -405,9 +410,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
  * -------------------------------------------------------------------------- */
 
 /* Add the object 'obj' string representation to the client output buffer. */
-void addReply(client *c, robj *obj) {
+void addReply(client *c, robj *obj) {//发送实际的数据
     if (prepareClientToWrite(c) != C_OK) return;
-
+    //如果encoding中是bulk类型/raw类型，就发送到数组中或者buf中
     if (sdsEncodedObject(obj)) {
         _addReplyToBufferOrList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
@@ -415,7 +420,7 @@ void addReply(client *c, robj *obj) {
          * using our optimized function, and attach the resulting string
          * to the output buffer. */
         char buf[32];
-        size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+        size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);//发送的元素大小
         _addReplyToBufferOrList(c,buf,len);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
@@ -442,9 +447,10 @@ void addReplySds(client *c, sds s) {
  * if not needed. The object will only be created by calling
  * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
+//s就是已经编码好的字符床，len就是字符串的长度
 void addReplyProto(client *c, const char *s, size_t len) {
-    if (prepareClientToWrite(c) != C_OK) return;
-    _addReplyToBufferOrList(c,s,len);
+    if (prepareClientToWrite(c) != C_OK) return;//把数据写入到pending列表中,等待多线程运行
+    _addReplyToBufferOrList(c,s,len);//
 }
 
 /* Low level function called by the addReplyError...() functions.
@@ -909,6 +915,7 @@ void addReplyHumanLongDouble(client *c, long double d) {
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
+//在这个函数中，会将字符串长度添加一个前缀$,后面添加\r\n，这样就凭借好了第一行,prefix就是判断该段以什么前缀进行返回,llj就是第一行元素的字节长度
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     char buf[128];
     int len;
@@ -917,12 +924,14 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
-    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
+    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);//计算第一行的长度
     if (prefix == '*' && opt_hdr) {
         addReplyProto(c,shared.mbulkhdr[ll]->ptr,hdr_len);
         return;
     } else if (prefix == '$' && opt_hdr) {
-        addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);
+        //shared.builkhdr就已经进行填充了
+        //如果是字符床长度小于32的话，直接使用一组共享对象（里面已经编码好了）
+        addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);//最后就是调用这个函数,将拼接好的bulk string的第一行，写入到client->buf中,等待IO线程的发送
         return;
     } else if (prefix == '%' && opt_hdr) {
         addReplyProto(c,shared.maphdr[ll]->ptr,hdr_len);
@@ -931,8 +940,8 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
         addReplyProto(c,shared.sethdr[ll]->ptr,hdr_len);
         return;
     }
-
-    buf[0] = prefix;
+    //如果hdr_len长度超过了32
+    buf[0] = prefix;//
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
@@ -995,7 +1004,7 @@ void addReplyBool(client *c, int b) {
 }
 
 /* A null array is a concept that no longer exists in RESP3. However
- * RESP2 had it, so API-wise we have this call, that will emit the correct
+ * RESP2 had it, so API-wis，we have this call, that will emit the correct
  * RESP2 protocol, however for RESP3 the reply will always be just the
  * Null type "_\r\n". */
 void addReplyNullArray(client *c) {
@@ -1008,16 +1017,16 @@ void addReplyNullArray(client *c) {
 
 /* Create the length prefix of a bulk reply, example: $2234 */
 void addReplyBulkLen(client *c, robj *obj) {
-    size_t len = stringObjectLen(obj);
+    size_t len = stringObjectLen(obj);//计算返回类型对应的长度
 
-    addReplyLongLongWithPrefix(c,len,'$');
+    addReplyLongLongWithPrefix(c,len,'$');//添加$前缀和\r\n后缀
 }
 
-/* Add a Redis Object as a bulk reply */
-void addReplyBulk(client *c, robj *obj) {
-    addReplyBulkLen(c,obj);
-    addReply(c,obj);
-    addReply(c,shared.crlf);
+/* Add a Redis Object as a bulk reply 发送一个bulk string，先发送一个字符串长度，后面就是字符串对应的数据内容*/
+void addReplyBulk(client *c, robj *obj) {//把redis的回复按照bulk形式进行回复
+    addReplyBulkLen(c,obj);//发送编码好字节的长度
+    addReply(c,obj);//这个obj就是发送的实际元素
+    addReply(c,shared.crlf);//添加一个\r\n
 }
 
 /* Add a C buffer as bulk reply */
@@ -2275,16 +2284,18 @@ static void setProtocolError(const char *errstr, client *c) {
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
+
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int ok;
     long long ll;
-
+    //这个进来先解析要读取数据的元素个数
     if (c->multibulklen == 0) {
         /* The client should have been reset */
         serverAssertWithInfo(c,NULL,c->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
+        //在querybuf中查找\r这个分割字符
         newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
             if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
@@ -2301,7 +2312,7 @@ int processMultibulkBuffer(client *c) {
         /* We know for sure there is a whole line since newline != NULL,
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
-        ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
+        ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);//将第一行数据转化成整形，记录到ll中
         if (!ok || ll > INT_MAX) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
@@ -2312,15 +2323,15 @@ int processMultibulkBuffer(client *c) {
             return C_ERR;
         }
 
-        c->qb_pos = (newline-c->querybuf)+2;
+        c->qb_pos = (newline-c->querybuf)+2;//往后移动\r\n
 
         if (ll <= 0) return C_OK;
 
-        c->multibulklen = ll;
+        c->multibulklen = ll;//将ll数据赋值给multibulken,这个里面存储着要读取的参数个数
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
-        c->argv_len = min(c->multibulklen, 1024);
+        c->argv_len = min(c->multibulklen, 1024);//开辟数组来存储元素
         c->argv = zmalloc(sizeof(robj*)*c->argv_len);
         c->argv_len_sum = 0;
     }
@@ -2343,7 +2354,7 @@ int processMultibulkBuffer(client *c) {
             /* Buffer should also contain \n */
             if (newline-(c->querybuf+c->qb_pos) > (ssize_t)(sdslen(c->querybuf)-c->qb_pos-2))
                 break;
-
+            //如果不是$,就抛异常
             if (c->querybuf[c->qb_pos] != '$') {
                 addReplyErrorFormat(c,
                     "Protocol error: expected '$', got '%c'",
@@ -2352,7 +2363,7 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
-            ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
+            ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);//获得当前元素中字符串的长度
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 addReplyError(c,"Protocol error: invalid bulk length");
@@ -2387,12 +2398,12 @@ int processMultibulkBuffer(client *c) {
                     c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf,ll+2-sdslen(c->querybuf));
                 }
             }
-            c->bulklen = ll;
+            c->bulklen = ll;//设置当前操作要读取的字符串的长度
         }
 
-        /* Read bulk argument */
+        /* Read bulk argument 开始读取字符串内容，填充到c->argv中*/
         if (sdslen(c->querybuf)-c->qb_pos < (size_t)(c->bulklen+2)) {
-            /* Not enough data (+2 == trailing \r\n) */
+            /* Not enough data (+2 == trailing \r\n)缓冲区中数据不足以构造当前函数 */
             break;
         } else {
             /* Check if we have space in argv, grow if needed */
@@ -2410,7 +2421,7 @@ int processMultibulkBuffer(client *c) {
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_len_sum += c->bulklen;
+                c->argv_len_sum += c->bulklen;//参数长度增加
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
@@ -2418,17 +2429,17 @@ int processMultibulkBuffer(client *c) {
                 sdsclear(c->querybuf);
             } else {
                 c->argv[c->argc++] =
-                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);//构造一个对象
                 c->argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
-            c->bulklen = -1;
+            c->bulklen = -1;//进入下一次循环
             c->multibulklen--;
         }
     }
 
     /* We're done when c->multibulk == 0 */
-    if (c->multibulklen == 0) return C_OK;
+    if (c->multibulklen == 0) return C_OK;//解析完成，数据都在c->argv
 
     /* Still not ready to process the command */
     return C_ERR;
@@ -2484,8 +2495,9 @@ int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     client *old_client = server.current_client;
     server.current_client = c;
+    //执行命令
     if (processCommand(c) == C_OK) {
-        commandProcessed(c);
+        commandProcessed(c);//命令的善后处理
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
         updateClientMemUsageAndBucket(c);
@@ -2537,6 +2549,7 @@ int processPendingCommandAndInputBuffer(client *c) {
 //将c->querybuf中的数据（全是字节），按照一定的规则，解析成redis server能够理解的命令,同时也是命令执行的入口
 int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
+    //qb_pos来记录querybuf的读取位置
     while(c->qb_pos < sdslen(c->querybuf)) {//不断对querybuf数据处理，直到全部数据都读取成功
 
         /* Immediately abort if the client is in the middle of something. */
@@ -2561,7 +2574,7 @@ int processInputBuffer(client *c) {
 
         /* Determine request type when unknown. */
         if (!c->reqtype) {
-            //设置协议的类型
+            //决定该客户端发送出来的请求协议的类型
             if (c->querybuf[c->qb_pos] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
             } else {
@@ -2577,7 +2590,7 @@ int processInputBuffer(client *c) {
         } else {
             serverPanic("Unknown request type");
         }
-
+        //到这里，命令就解析完到c->argv中了
         /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
             resetClient(c);
@@ -2585,13 +2598,17 @@ int processInputBuffer(client *c) {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
              * as one that needs to process the command. */
+            //命令解析成功
+            //多线程
+            //在IO线程读取的时候，io_thread_op这个字段一定是IO_THREADS_OP_READ,所以一定会走到下面的分支
             if (io_threads_op != IO_THREADS_OP_IDLE) {
                 serverAssert(io_threads_op == IO_THREADS_OP_READ);
-                c->flags |= CLIENT_PENDING_COMMAND;//设置标志位
-                break;
+                c->flags |= CLIENT_PENDING_COMMAND;//设置标志位,表示该client有一条等待处理的命令
+                break;//直接结束命令的解析
             }
-
+            //单线程
             /* We are finally ready to execute the command. */
+            //在这个地方执行命令
             if (processCommandAndResetClient(c) == C_ERR) {
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
@@ -2600,7 +2617,7 @@ int processInputBuffer(client *c) {
             }
         }
     }
-    //清理缓冲区
+    
     if (c->flags & CLIENT_MASTER) {
         /* If the client is a master, trim the querybuf to repl_applied,
          * since master client is very special, its querybuf not only
@@ -2620,8 +2637,9 @@ int processInputBuffer(client *c) {
             c->repl_applied = 0;
         }
     } else if (c->qb_pos) {
+        //将已经解析的命令从缓冲区中清理掉
         /* Trim to pos */
-        sdsrange(c->querybuf,c->qb_pos,-1);
+        sdsrange(c->querybuf,c->qb_pos,-1);//清空字符串
         c->qb_pos = 0;
     }
 
@@ -4283,6 +4301,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listNode *ln;
     listRewind(server.clients_pending_write,&li);
     int item_id = 0;
+    //分配写会任务
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
@@ -4464,7 +4483,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
         /* Once io-threads are idle we can update the client in the mem usage */
         updateClientMemUsageAndBucket(c);
-        //在清理的过程中，对client读取的数据进行一个解析
+        //走到这里，client中的命令都已经被解析好了，数据都已经放到c->argv中
         if (processPendingCommandAndInputBuffer(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go

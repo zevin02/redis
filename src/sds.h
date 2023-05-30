@@ -105,18 +105,18 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 //根据第一个位置就可以调用->
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
-
+//计算sds的长度
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
-            return SDS_TYPE_5_LEN(flags);
+            return SDS_TYPE_5_LEN(flags);//因为这个比较小,所以长度直接编码在flags中了
         case SDS_TYPE_8:
             return SDS_HDR(8,s)->len;
         case SDS_TYPE_16:
             return SDS_HDR(16,s)->len;
         case SDS_TYPE_32:
-            return SDS_HDR(32,s)->len;
+            return SDS_HDR(32,s)->len;//通过报头的结构体获得长度
         case SDS_TYPE_64:
             return SDS_HDR(64,s)->len;
     }

@@ -38,7 +38,7 @@
 #endif
 
 /* ===================== Creation and parsing of objects ==================== */
-
+//创建一个robj对象
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
@@ -88,7 +88,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
+    o->ptr = sh+1;//指针只要sh里面的指针即可
     o->refcount = 1;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;

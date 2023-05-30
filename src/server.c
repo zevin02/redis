@@ -3364,6 +3364,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
  * preventCommandReplication(client *c);
  *
  */
+//调用相应的命令处理函数
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
@@ -3403,7 +3404,7 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     server.in_nested_call++;
-    c->cmd->proc(c);
+    c->cmd->proc(c);//真正调用相应的函数，来进行处理
     server.in_nested_call--;
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
@@ -3696,6 +3697,7 @@ uint64_t getCommandFlags(client *c) {
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+//执行命令
 int processCommand(client *c) {
     if (!scriptIsTimedout()) {
         /* Both EXEC and scripts call call() directly so there should be
@@ -3726,7 +3728,9 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+    //在server.commands这个命令字典中查找对应的实例，并记录
+    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);//确认当前处理的是哪一条命令
+    //接下来就是对命令进行检查
     sds err;
     if (!commandCheckExistence(c, &err)) {
         rejectCommandSds(c, err);
@@ -4025,7 +4029,7 @@ int processCommand(client *c) {
         return C_OK;       
     }
 
-    /* Exec the command */
+    /* Exec the command 执行命令*/
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand &&
         c->cmd->proc != discardCommand &&
@@ -4034,13 +4038,13 @@ int processCommand(client *c) {
         c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand)
     {
-        queueMultiCommand(c, cmd_flags);
+        queueMultiCommand(c, cmd_flags);//将命令如队，等待命令的执行（命令的执行是单线程的）
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
+        call(c,CMD_CALL_FULL);//调用call函数执行命令
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
-            handleClientsBlockedOnKeys();
+            handleClientsBlockedOnKeys();//唤醒阻塞的客户端
     }
 
     return C_OK;

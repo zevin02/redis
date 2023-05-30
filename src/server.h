@@ -1134,7 +1134,7 @@ typedef struct client {
 
     /*2.redis读取该客户端请求的相关字段，，*/
     sds querybuf;           /* Buffer we use to accumulate client queries. 客户端与redis服务器连接的时候，请求会写入到这个缓冲区里面，querybuf缓冲区里缓冲发送的数据*/
-    size_t qb_pos;          /* The position we have read in querybuf. 记录了querybuf缓冲区里面的有效字节数*/
+    size_t qb_pos;          /* The position we have read in querybuf. 用来记录当前读取到querybuf中的哪一个位置*/
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. 记录一段时间内querybuf的最大值*/
 
     /*当querybuf里面缓存主沟多的数据后，就会按照RESP协议来解析成redis命令*/
@@ -1148,7 +1148,7 @@ typedef struct client {
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
 
     /*redis会根据解析得到的命令名称找到要执行的redisCommand，并用cmd和lastcmd来记录*/
-    struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    struct redisCommand *cmd, *lastcmd;  /* Last command executed. 记录当前对应的命令*/
     struct redisCommand *realcmd; /* The original command that was executed by the client,
                                      Used to update error stats in case the c->cmd was modified
                                      during the command invocation (like on GEOADD for example). */
@@ -1157,12 +1157,12 @@ typedef struct client {
                                anything (admin). */
 
     int reqtype;            /* Request protocol type: PROTO_REQ_* 用来记录当前请求的格式,请求的类型*/
-    int multibulklen;       /* Number of multi bulk arguments left to read. */
-    long bulklen;           /* Length of bulk argument in multi bulk request. */
+    int multibulklen;       /* Number of multi bulk arguments left to read.表示客户端请求的数组元素的个数 */
+    long bulklen;           /* Length of bulk argument in multi bulk request. 当前解析操作中要读取的字符串的长度*/
     /*
         当redis写给client的buf缓冲区里面满了后，后续数据会追加到reply列表中，其中的每个元素都是clientreplyblock实例（也是16K的缓冲区），写满一个才能写下一个实例
     */
-    list *reply;            /* List of reply objects to send to the client. */
+    list *reply;            /* List of reply objects to send to the client.当buf的缓冲区长度超过16K的时候，redis就开始往reply列表进行写入，每个列表都是；clientReplyBlock实例 */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. reply中的总字节数*/
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
 
@@ -1246,8 +1246,8 @@ typedef struct client {
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
     mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
 
-    int bufpos;//buf数组里面实际使用的长度
-    size_t buf_usable_size; /* Usable size of buffer. buf缓冲区里面剩余可用的空间大小*/
+    int bufpos;//当前client处理的buf字节在当前buf的位置
+    size_t buf_usable_size; /* Usable size of buffer. buf缓冲区里面剩余可用的空间大小,初始化为1KB*/
     char *buf;//redis响应回来的缓冲区，默认是16K
 } client;
 
