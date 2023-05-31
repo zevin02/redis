@@ -165,7 +165,7 @@ static void connSocketClose(connection *conn) {
 }
 //向套接字写入数据
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
-    int ret = write(conn->fd, data, data_len);
+    int ret = write(conn->fd, data, data_len);//调用完这个，就给客户端发送过去了
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -235,16 +235,16 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     if (func == conn->write_handler) return C_OK;
 
-    conn->write_handler = func;
+    conn->write_handler = func;//设置写回调
     if (barrier)
         conn->flags |= CONN_FLAG_WRITE_BARRIER;
     else
         conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
-    if (!conn->write_handler)
-        aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
+    if (!conn->write_handler)//这里为null，就需要删除或修改文件中的事件
+        aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);//
     else
         if (aeCreateFileEvent(server.el,conn->fd,AE_WRITABLE,
-                    conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
+                    conn->type->ae_handler,conn) == AE_ERR) return C_ERR;//注册事件,等待epoll触发,当该fd可写，就会自动触发
     return C_OK;
 }
 

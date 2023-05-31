@@ -85,30 +85,30 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
             EPOLL_CTL_ADD : EPOLL_CTL_MOD;//获得要处理事件的操作，如果这个没有被操作过，即将这个fd添加到epoll中
 
     ee.events = 0;
-    mask |= eventLoop->events[fd].mask; /* Merge old events */
+    mask |= eventLoop->events[fd].mask; /* Merge old events 合并事件，之前只监听读，现在监听写了*/
     //设置要监听的事件
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;//设置fd
-    if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
+    if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;//添加写，只要用修改即可,现在监听可读可写事件
     return 0;
 }
 //封装fd的删除
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0}; /* avoid valgrind warning */
-    int mask = eventLoop->events[fd].mask & (~delmask);
+    int mask = eventLoop->events[fd].mask & (~delmask);//在fd中把delmask的标志位都删除掉
 
     ee.events = 0;
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
     if (mask != AE_NONE) {
-        epoll_ctl(state->epfd,EPOLL_CTL_MOD,fd,&ee);
+        epoll_ctl(state->epfd,EPOLL_CTL_MOD,fd,&ee);//不为non就需要修改监听事件的类型
     } else {
         /* Note, Kernel < 2.6.9 requires a non null event pointer even for
          * EPOLL_CTL_DEL. */
-        epoll_ctl(state->epfd,EPOLL_CTL_DEL,fd,&ee);
+        epoll_ctl(state->epfd,EPOLL_CTL_DEL,fd,&ee);//否则就删除对该文件描述符的监听
     }
 }
 //对epoll_wait进行封装,获取触发的事件

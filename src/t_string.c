@@ -329,7 +329,7 @@ int getGenericCommand(client *c) {
     //从redis db中查询value值，并放在o里面,返回的格式在第三个参数中进行设置
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return C_OK;
-
+    
     if (checkType(c,o,OBJ_STRING)) {
         return C_ERR;
     }

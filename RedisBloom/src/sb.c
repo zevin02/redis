@@ -133,7 +133,7 @@ SBChain *SB_NewChain(uint64_t initsize, double error_rate, unsigned options, uns
         SBChain_Free(sb);
         sb = NULL;
     }
-    printf("%d\n",__LINE__);
+    // printf("%d\n",__LINE__);
 
     return sb;
 }

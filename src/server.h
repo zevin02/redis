@@ -902,8 +902,8 @@ struct evictionPoolEntry; /* Defined in evict.c */
 /* This structure is used in order to represent the output buffer of a client,
  * which is actually a linked list of blocks like that, that is: client->reply. */
 typedef struct clientReplyBlock {
-    size_t size, used;
-    char buf[];
+    size_t size, used;//存储的字节大小，和已经使用的大小
+    char buf[];//记录存储的数据
 } clientReplyBlock;
 
 /* Replication buffer blocks is the list of replBufBlock.
@@ -1669,7 +1669,7 @@ struct redisServer {
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
-    redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
+    redisAtomic long long stat_net_output_bytes; /* Bytes written to network.记录网络中发送的字节总大小 */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
