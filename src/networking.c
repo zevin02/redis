@@ -3742,8 +3742,8 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem;
-    mem += sdsZmallocSize(c->querybuf);
-    mem += zmalloc_size(c);
+    mem += sdsZmallocSize(c->querybuf);//缓冲区的大小
+    mem += zmalloc_size(c);//获得当前client的内存大小
     mem += c->buf_usable_size;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
@@ -3766,10 +3766,10 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
  * classes of clients.
  *
  * The function will return one of the following:
- * CLIENT_TYPE_NORMAL -> Normal client
- * CLIENT_TYPE_SLAVE  -> Slave
- * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
- * CLIENT_TYPE_MASTER -> The client representing our replication master.
+ * CLIENT_TYPE_NORMAL -> Normal client 普通的客户端
+ * CLIENT_TYPE_SLAVE  -> Slave      用作复制的客户端
+ * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels  用作pubsub的客户端
+ * CLIENT_TYPE_MASTER -> The client representing our replication master.   master的客户端
  */
 int getClientType(client *c) {
     if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
@@ -3865,6 +3865,8 @@ int checkClientOutputBufferLimits(client *c) {
  * useful when called from cron.
  *
  * Returns 1 if client was (flagged) closed. */
+
+//检查当前的client的写回缓冲区是否超过了soft限制和hard限制
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));

@@ -54,6 +54,7 @@ int checkBlockedClientTimeout(client *c, mstime_t now) {
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
  * each iteration would be costly without any actual gain. */
+//检查client.lastinteraction的交互时间，如果长时间没有交互，server就会认为客户端宕机，就会断开连接
 int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
@@ -63,10 +64,10 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         !mustObeyClient(c) &&         /* No timeout for masters and AOF */
         !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
-        (now - c->lastinteraction > server.maxidletime))
+        (now - c->lastinteraction > server.maxidletime))//如果中间隔的时间已经超过了超时时长，就要进行断开连接
     {
-        serverLog(LL_VERBOSE,"Closing idle client");
-        freeClient(c);
+        serverLog(LL_VERBOSE,"Closing idle client");//
+        freeClient(c);//释放客户端
         return 1;
     } else if (c->flags & CLIENT_BLOCKED) {
         /* Cluster: handle unblock & redirect of clients blocked

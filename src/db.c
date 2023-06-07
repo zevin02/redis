@@ -51,10 +51,16 @@ int keyIsExpired(redisDb *db, robj *key);
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
+//如果使用LFU算法，高16位是记录最近一次访问的时间（分钟级别，每45天溢出一次）
+//第二部分是低8位，用作计数器使用（最大是25）
+//redis的LFU算法不仅记录建的访问频率，还记录了建最后访问的时间(这个时间也叫做LDT)，能够更好的判断哪些key是最近最少使用的
+//在LFU算法中，如果两个key的访问次数相同，则最近访问时间更早的key就会被淘汰
+//访问key就要更新他的couter
 void updateLFU(robj *val) {
-    unsigned long counter = LFUDecrAndReturn(val);
-    counter = LFULogIncr(counter);
+    unsigned long counter = LFUDecrAndReturn(val);//获得衰减过的计数
+    counter = LFULogIncr(counter);//couter就是低8位
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
+
 }
 
 /* Lookup a key for read or write operations, or return NULL if the key is not
@@ -69,10 +75,10 @@ void updateLFU(robj *val) {
  * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
  *
  * Flags change the behavior of this command:
- *
+ *  
  *  LOOKUP_NONE (or zero): No special flags are passed.
- *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
- *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
+ *  LOOKUP_NOTOUCH: Don't alter the last access time of the key，正常的读写命令都需要更新key对应的robj->lru，但是向EXISTS，OBJECT，TTL查看元数据的命令就需要设置这个标志位，表示不需要更新robj->lru字段
+ *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss. 在正常读写命令找不到key，就会触发一个keymiss的keyspace通知，单思像OBJECT这个查看元数据的命令就会设置，避免发送通知
  *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
@@ -84,11 +90,14 @@ void updateLFU(robj *val) {
  * Even if the key expiry is master-driven, we can correctly report a key is
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
+//根据他的key，返回他维护的数据结构
+
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
+    dictEntry *de = dictFind(db->dict,key->ptr);//在全局的kv字段中根据key找到他对应的键值对
     robj *val = NULL;
     if (de) {
-        val = dictGetVal(de);
+        //获得键值对对应的的redisrobject结构体
+        val = dictGetVal(de);//获得键值对对应的redisobject结构体
         /* Forcing deletion of expired keys on a replica makes the replica
          * inconsistent with the master. We forbid it on readonly replicas, but
          * we have to allow it on writable replicas to make write commands
@@ -103,7 +112,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
-        if (expireIfNeeded(db, key, expire_flags)) {
+        if (expireIfNeeded(db, key, expire_flags)) {//delete this key in db->dict 
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -115,9 +124,11 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
          * a copy on write madness. */
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                //实用LFU算法
                 updateLFU(val);
             } else {
-                val->lru = LRU_CLOCK();
+                //当一个key被访问的时候，就需要更新他的lru时钟
+                val->lru = LRU_CLOCK();//更新他的lru时钟值
             }
         }
 
@@ -144,6 +155,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * This function is equivalent to lookupKey(). The point of using this function
  * rather than lookupKey() directly is to indicate that the purpose is to read
  * the key. */
+// 在读的时候查找
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     serverAssert(!(flags & LOOKUP_WRITE));
     return lookupKey(db, key, flags);
@@ -161,6 +173,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
+//在写的时候查找key
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
     return lookupKey(db, key, flags | LOOKUP_WRITE);
 }

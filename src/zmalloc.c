@@ -92,7 +92,7 @@ void zlibc_free(void *ptr) {
 #define update_zmalloc_stat_alloc(__n) atomicIncr(used_memory,(__n))
 #define update_zmalloc_stat_free(__n) atomicDecr(used_memory,(__n))
 
-static redisAtomic size_t used_memory = 0;
+static redisAtomic size_t used_memory = 0;//这个用来存储已经使用的内存
 
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
@@ -347,10 +347,10 @@ char *zstrdup(const char *s) {
     memcpy(p,s,l);
     return p;
 }
-
+//获得当前已经使用的内存
 size_t zmalloc_used_memory(void) {
-    size_t um;
-    atomicGet(used_memory,um);
+    size_t um;//uml里面存储已经使用的内存
+    atomicGet(used_memory,um);//原子性的获取一个变量,并把数据放到um中
     return um;
 }
 
@@ -556,6 +556,7 @@ size_t zmalloc_get_rss(void) {
     return info.pr_rssize;
 }
 #else
+//获得常驻类型
 size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
      * return the memory usage we estimated in zmalloc()..

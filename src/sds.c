@@ -329,8 +329,9 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
 //这个地方会真正执行内存释放的操作，使它没有空闲的空间，之前的字符串无效了，之后都要使用这个新函数返回的字符串来进行替代
 
 //would_grow 这个就是用来判断是否需要进行重刑分配内存
+//释放一些没用的内存容量
 sds sdsRemoveFreeSpace(sds s, int would_regrow) {
-    return sdsResize(s, sdslen(s), would_regrow);
+    return sdsResize(s, sdslen(s), would_regrow);//根据他现在占用的容量，把没用的缓冲区都删除掉
 }
 
 /* Resize the allocation, this can make the allocation bigger or smaller,
@@ -345,10 +346,10 @@ sds sdsRemoveFreeSpace(sds s, int would_regrow) {
 
 sds sdsResize(sds s, size_t size, int would_regrow) {
     void *sh, *newsh;
-    char type, oldtype = s[-1] & SDS_TYPE_MASK;
-    int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    char type, oldtype = s[-1] & SDS_TYPE_MASK;//记录原来的类型
+    int hdrlen, oldhdrlen = sdsHdrSize(oldtype);//记录原来报头的大小
     size_t len = sdslen(s);
-    sh = (char*)s-oldhdrlen;
+    sh = (char*)s-oldhdrlen;//sh里面存储实际的有效数据
 
     /* Return ASAP if the size is already good. */
     //如果此时的容量的长度相等已经很好了，就不需要进行操作了

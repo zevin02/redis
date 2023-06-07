@@ -39,8 +39,9 @@
 
 /* ===================== Creation and parsing of objects ==================== */
 //创建一个robj对象
+//键值对lru时钟值的初始化，在创建的时候对进行初始化
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = zmalloc(sizeof(*o));//分配内存
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -48,9 +49,12 @@ robj *createObject(int type, void *ptr) {
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+    //根据内存值换的协议操作来选择置换算法
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        //如果使用的lfu进行淘汰，那么字段存储的就是这个key最近被访问的次数
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
+        //如果没有使用LFU算法，就会获得lru的值来设置
         o->lru = LRU_CLOCK();
     }
     return o;

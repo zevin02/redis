@@ -216,24 +216,26 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 
     return fe->mask;
 }
-
+//创建一个时间事件
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
-    long long id = eventLoop->timeEventNextId++;
-    aeTimeEvent *te;
+    long long id = eventLoop->timeEventNextId++;//作为该时间时间的id
+    aeTimeEvent *te;//时间事件
 
     te = zmalloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
-    te->when = getMonotonicUs() + milliseconds * 1000;
+    //+代表需要延迟的事件，就是过了这个时间触发
+    te->when = getMonotonicUs() + milliseconds * 1000;//获得一个微秒级的事件戳
     te->timeProc = proc;
-    te->finalizerProc = finalizerProc;
-    te->clientData = clientData;
-    te->prev = NULL;
+    te->finalizerProc = finalizerProc;//最后执行的没有
+    te->clientData = clientData;//无client数据
+    te->prev = NULL;//因为是第一个元素，前面无数据
     te->next = eventLoop->timeEventHead;
     te->refcount = 0;
+    //进行一个头插时间时间
     if (te->next)
         te->next->prev = te;
     eventLoop->timeEventHead = te;

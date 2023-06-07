@@ -2137,7 +2137,9 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 
 /* =========================== Software Watchdog ============================ */
 #include <sys/time.h>
-
+//这个就是在sigalarm时间到了，触发了这个信号就会处理，否则就不会处理
+    //会抓取sigalarm信号时redis主线程的堆栈信息，并输出到日志文件中，如果频繁发现在某个位置超时，就可以怀疑这个逻辑或者相关操作导致redis阻塞
+    //每次定时器超时，都会发送一个SIGALARM信号，可以在信号处理函数中处理
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
@@ -2149,7 +2151,7 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 
     serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
-    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);//查看对栈调用信息
 #else
     serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
@@ -2161,14 +2163,17 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
  * specified time. If period is 0 the current timer is disabled. */
 void watchdogScheduleSignal(int period) {
     struct itimerval it;
+    //500ms进行一个超时操作
 
+    //Redis 主线程被某些操作阻塞，Redis 主线程就无法按时重置定时器，系统就会触发 SIGALRM 信号
     /* Will stop the timer if period is 0. */
     it.it_value.tv_sec = period/1000;
     it.it_value.tv_usec = (period%1000)*1000;
     /* Don't automatically restart. */
     it.it_interval.tv_sec = 0;
     it.it_interval.tv_usec = 0;
-    setitimer(ITIMER_REAL, &it, NULL);
+    //这里设置的是一个定时器类型
+    setitimer(ITIMER_REAL, &it, NULL);//重置定时器
 }
 void applyWatchdogPeriod() {
     struct sigaction act;

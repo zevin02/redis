@@ -619,6 +619,8 @@ typedef enum {
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
+//条件1处理servercron执行间隔比ms大的情况，
+//条件2处理的是间隔小，cronloops就是执行servercron的次数，
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
@@ -846,9 +848,11 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 
-#define LRU_BITS 24
-#define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
-#define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
+#define LRU_BITS 24 //时间的最大bit位是24位
+
+#define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru lru时间的最大值*/
+//所以LRU的精度就是1s，无法区分间隔小于1s的时间戳
+#define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms 以毫秒为单位的lru时钟精度，也就是以毫秒为单位的时钟的最小值，1000ms，也就是1s就需要根性依次LRU时钟*/
 
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
@@ -867,13 +871,16 @@ typedef struct RedisModuleDigest {
 
 
 
-
+//每一个键值对都会把最近一次被访问的时间戳记录在lru字段中
 typedef struct redisObject {
     unsigned type:4;        //这个是一个位端，占4个bit位，用来表示value是什么类型的，OBJ_STRING,OBJ_HASH,OBJ_LIST,OBJ_ZSET,对应前面学习的数据结构
     unsigned encoding:4;    //4个比特位，指定了robj的包装数据的编码方式，对于特定的数据类型（type），存储的数据类型不同，编码也会有所不同
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
+                            * and most significant 16 bits access time).存储的是24位，redis使用lru字段来纪律访问当前key的时间戳，这个时间戳是秒级别，194天溢出一次
+                            * 在redis每次启动LRU算法淘汰key时，会从整个db中，选出最长时间没有访问的key，并删除，就完成了内存删除
+                            * 
+                            *  */
     int refcount;          // 一个对象可能会被多次引用，引用的对象
     void *ptr;             //这个是指向实际存储对象，void * 就是为了实现泛性编程，就是key对应的value
 } robj;
@@ -942,7 +949,7 @@ typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
 //用来存储键值对的数据库
 typedef struct redisDb {
     //用来存储键值队的dict实例
-    dict *dict;                 /* The keyspace for this DB */
+    dict *dict;                 /* The keyspace for this DB 这个里面存储key*/
     //用来存储每个key的过期时间
     dict *expires;              /* Timeout of keys with a timeout set */
     //blocking_keys用来存储客户端阻塞等待的key，例如执行BLOPOP时，阻塞等待弹出列表的元素时，就会把key写入到blocking_key当中，而value中就是被阻塞的客户端
@@ -1125,7 +1132,7 @@ typedef struct client {
     /*1.客户端的基础信息*/
     uint64_t id;            /* Client incremental unique ID.记录了client的唯一id，client实例的自增id，默认时通过server.next_client_id自增得到 */
     //CLIENT——MULTI（1<<3）表示当前处于一个事务上下文中
-    uint64_t flags;         /* Client flags: CLIENT_* macros. 其中的每一位都代表一个状态，如果为0,说明什么状态都没有*/
+    uint64_t flags;         /* Client flags: CLIENT_* macros. 其中的每一位都代表一个状态，如果为0,说明什么状态都没有,同时还记录了该client的类型（普通，slave,pubsub，master）*/
     connection *conn;       /* conn字段抽象了该client的客户端与server端的网络连接*/
     int resp;               /* RESP protocol version. Can be 2 or 3. resp是该client支持的协议，2和3分别代表RESP2协议和RESP3协议*/
 
@@ -1231,7 +1238,7 @@ typedef struct client {
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
     size_t last_memory_usage;
-    int last_memory_type;
+    int last_memory_type;//之前的客户端的类型（普通，pubsub，master，slave）
 
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
@@ -1434,9 +1441,9 @@ typedef struct rdbSaveInfo {
 #define RDB_SAVE_INFO_INIT {-1,0,"0000000000000000000000000000000000000000",-1}
 
 struct malloc_stats {
-    size_t zmalloc_used;
-    size_t process_rss;
-    size_t allocator_allocated;
+    size_t zmalloc_used;//已使用内存
+    size_t process_rss;//常驻内存,已分配的内存总量
+    size_t allocator_allocated;//
     size_t allocator_active;
     size_t allocator_resident;
 };
@@ -1536,7 +1543,7 @@ struct redisServer {
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
-    int hz;                     /* serverCron() calls frequency in hertz */
+    int hz;                     /* serverCron() calls frequency in hertz ,serverCron（）1s触发的次数*/
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;                //存储键值队数据的redisDb实例，这个指针指向了一个长度为dbnum的redisdb数组
     dict *commands;             /* Command table 当前redis能处理的命令列表，key是命令名，value是执行命令的入口,就是一个redisCommand对象*/
@@ -1639,7 +1646,7 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
-    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
+    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) 记录淘汰了多少个key*/
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
@@ -1652,7 +1659,7 @@ struct redisServer {
     long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
     long long stat_total_active_defrag_time; /* Total time memory fragmentation over the limit, unit us */
     monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
-    size_t stat_peak_memory;        /* Max used memory record */
+    size_t stat_peak_memory;        /* Max used memory record 内存使用的峰值*/
     long long stat_aof_rewrites;    /* number of aof file rewrites performed */
     long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
     long long stat_rdb_saves;       /* number of rdb saves performed */
@@ -1681,7 +1688,7 @@ struct redisServer {
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
-    size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type 4种类型的客户端一共使用的内存大小*/
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -1692,18 +1699,20 @@ struct redisServer {
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
+    
     struct {
-        long long last_sample_time; /* Timestamp of last sample in ms */
-        long long last_sample_count;/* Count in last sample */
-        long long samples[STATS_METRIC_SAMPLES];
-        int idx;
-    } inst_metric[STATS_METRIC_COUNT];
+        long long last_sample_time; /* Timestamp of last sample in ms 上一次采样的时间*/
+        long long last_sample_count;/* Count in last sample 上一次采样的结果*/
+        long long samples[STATS_METRIC_SAMPLES];//存储16次采样(速率)
+        int idx;//用于记录当前samples的下标
+    } inst_metric[STATS_METRIC_COUNT];//这个就会用来对应COMMAND，NETINPUT，NETOUTPUT
+
     long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
     long long stat_reply_buffer_expands; /* Total number of output buffer expands */
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
-    int maxidletime;                /* Client timeout in seconds */
+    int maxidletime;                /* Client timeout in seconds,存储客户端的超时时间，由redis.conf的timeout来进行配置 */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. redis中该字段设置成300s，建立tcp连接300s不会断开连接(可以确保不会过早的断开连接，也不会持续的时间过长)*/
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
@@ -1891,10 +1900,10 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     ssize_t maxmemory_clients;       /* Memory limit for total client buffers */
     int maxmemory_policy;           /* Policy for key eviction */
-    int maxmemory_samples;          /* Precision of random sampling */
-    int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
+    int maxmemory_samples;          /* Precision of random sampling 当进行内存驱逐，lru缓存池中采样的最大数量*/
+    int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing 这个字段是用来指定内存达到上限时，进行内存淘汰的侵略性程度*/
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
-    int lfu_decay_time;             /* LFU counter decay factor. */
+    int lfu_decay_time;             /* LFU counter decay factor. LDT流逝多久衰减1*/
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
@@ -1927,11 +1936,11 @@ struct redisServer {
     int list_max_listpack_size;
     int list_compress_depth;
     /* time cache */
-    redisAtomic time_t unixtime; /* Unix time sampled every cron cycle. */
+    redisAtomic time_t unixtime; /* Unix time sampled every cron cycle.存储当前秒级时间戳 */
     time_t timezone;            /* Cached timezone. As set by tzset(). */
     int daylight_active;        /* Currently in daylight saving time. */
-    mstime_t mstime;            /* 'unixtime' in milliseconds. */
-    ustime_t ustime;            /* 'unixtime' in microseconds. */
+    mstime_t mstime;            /* 'unixtime' in milliseconds. 缓存当前毫秒级时间戳*/
+    ustime_t ustime;            /* 'unixtime' in microseconds. 缓存当前微秒级时间戳*/
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */

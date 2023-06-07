@@ -185,7 +185,7 @@ err:
     if (!log_to_stdout) close(fd);
 }
 
-/* Return the UNIX time in microseconds */
+/* Return the UNIX time in microseconds，获得微妙级时间戳 */
 long long ustime(void) {
     struct timeval tv;
     long long ust;
@@ -193,12 +193,12 @@ long long ustime(void) {
     gettimeofday(&tv, NULL);
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
-    return ust;
+    return ust;//
 }
 
 /* Return the UNIX time in milliseconds */
 mstime_t mstime(void) {
-    return ustime()/1000;
+    return ustime()/1000;//获得毫秒级时间戳
 }
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
@@ -670,20 +670,20 @@ int allPersistenceDisabled(void) {
 
 /* Add a sample to the operations per second array of samples. */
 void trackInstantaneousMetric(int metric, long long current_reading) {
-    long long now = mstime();
-    long long t = now - server.inst_metric[metric].last_sample_time;
+    long long now = mstime();//获得当前的时间
+    long long t = now - server.inst_metric[metric].last_sample_time;//两次采样的时间间隔
     long long ops = current_reading -
-                    server.inst_metric[metric].last_sample_count;
+                    server.inst_metric[metric].last_sample_count;//两次采样的差值 
     long long ops_sec;
 
-    ops_sec = t > 0 ? (ops*1000/t) : 0;
+    ops_sec = t > 0 ? (ops*1000/t) : 0;//记录采样速率
 
     server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
-        ops_sec;
+        ops_sec;//将值记录到samples数组中
     server.inst_metric[metric].idx++;
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = now;
-    server.inst_metric[metric].last_sample_count = current_reading;
+    server.inst_metric[metric].last_sample_time = now;//更新此时的时间
+    server.inst_metric[metric].last_sample_count = current_reading;//更新此时的采样结果
 }
 
 /* Return the mean of all the samples. */
@@ -701,17 +701,19 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
-    size_t querybuf_size = sdsalloc(c->querybuf);
-    time_t idletime = server.unixtime - c->lastinteraction;
+    size_t querybuf_size = sdsalloc(c->querybuf);//获得querybuf的容量
+    time_t idletime = server.unixtime - c->lastinteraction;//获得多长时间客户端没有进行和服务段进行交互
 
     /* Only resize the query buffer if the buffer is actually wasting at least a
      * few kbytes */
+    //缓冲区可用空间超过4K，且客户端超过两秒没有发来请求
     if (sdsavail(c->querybuf) > 1024*4) {
         /* There are two conditions to resize the query buffer: */
-        if (idletime > 2) {
+        if (idletime > 2) {//超过两秒没有和服务器交互，就要进行一个缩容量
             /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
         } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
+            //缓冲区容量超过32K，且querybuf超出峰值缓冲区的两倍
             /* 2) Query buffer is too big for latest peak and is larger than
              *    resize threshold. Trim excess space but only up to a limit,
              *    not below the recent peak and current c->querybuf (which will
@@ -798,7 +800,8 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
 #define CLIENTS_PEAK_MEM_USAGE_SLOTS 8
 size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
-
+//统计当前客户端的读写缓冲区的最大值，统计结果放到clientpeakmeminput,clientpeakmemoutput
+//追踪每个时间槽位（一段时间内的统计间隔，每个时间段称为一个时间槽位）中跟踪客户端的读写缓冲区最大值，
 int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
 	              (c->argv ? zmalloc_size(c->argv) : 0);
@@ -842,15 +845,17 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * client memory usage information to place it into appropriate client memory
  * usage bucket.
  */
+//累积全部client占用的内存量，client类型又分成了4种
 void updateClientMemoryUsage(client *c) {
-    size_t mem = getClientMemoryUsage(c, NULL);
-    int type = getClientType(c);
+    size_t mem = getClientMemoryUsage(c, NULL);//获得client当前使用的内存
+    int type = getClientType(c);//获得当前客户端的类型
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
+    //移除他的旧内存（类型），并把内存添加到新内存（新类型）
     server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
     /* Remember what we added and where, to remove it next time. */
-    c->last_memory_type = type;
+    c->last_memory_type = type;//更新该client的类型
     c->last_memory_usage = mem;
 }
 
@@ -950,13 +955,15 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  * of clients per second, turning this function into a source of latency.
  */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
+//对server.clients集合中存储的client进行处理，每次不会不会处理所有的client，而是根据server.hz频率，对client进行分片处理
+//每次至少处理5个client，这样可以尽可能保证1s内处理完client集合
 void clientsCron(void) {
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
      * function is called server.hz times per second, in the average case we
      * process all the clients in 1 second. */
-    int numclients = listLength(server.clients);
-    int iterations = numclients/server.hz;
+    int numclients = listLength(server.clients);//获得当前客户端的长度
+    int iterations = numclients/server.hz;//计算每次迭代的个数
     mstime_t now = mstime();
 
     /* Process at least a few clients while we are at it, even if we need
@@ -967,7 +974,7 @@ void clientsCron(void) {
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
 
-    int curr_peak_mem_usage_slot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    int curr_peak_mem_usage_slot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;//用于存储当前的峰值内存使用量槽位,(某个时间段的时间槽位)
     /* Always zero the next sample, so that when we switch to that second, we'll
      * only register samples that are greater in that second without considering
      * the history of such slot.
@@ -983,7 +990,7 @@ void clientsCron(void) {
     ClientsPeakMemInput[zeroidx] = 0;
     ClientsPeakMemOutput[zeroidx] = 0;
 
-
+    //client会依次从5个方面对client进行周期型管理，分别对应如下的5种方法
     while(listLength(server.clients) && iterations--) {
         client *c;
         listNode *head;
@@ -991,17 +998,17 @@ void clientsCron(void) {
         /* Rotate the list, take the current head, process.
          * This way if the client must be removed from the list it's the
          * first element and we don't incur into O(N) computation. */
-        listRotateTailToHead(server.clients);
+        listRotateTailToHead(server.clients);//每次都把尾节点移动到头节点位置，所以每次处理的都是尾巴节点
         head = listFirst(server.clients);
         c = listNodeValue(head);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
-        if (clientsCronHandleTimeout(c,now)) continue;
-        if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronHandleTimeout(c,now)) continue;//对客户端超时断开连接
+        if (clientsCronResizeQueryBuffer(c)) continue;//减小client.querybuf缓存区，释放无用空间
         if (clientsCronResizeOutputBuffer(c,now)) continue;
 
-        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
+        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;//统计当前clietn中读写缓冲区的最大值，
 
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
          * in turn would make the INFO command too slow. So we perform this
@@ -1010,9 +1017,9 @@ void clientsCron(void) {
          * a more incremental way (depending on server.hz).
          * If client eviction is enabled, update the bucket as well. */
         if (!updateClientMemUsageAndBucket(c))
-            updateClientMemoryUsage(c);
+            updateClientMemoryUsage(c);//累积全部client占用的内存量
 
-        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
+        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;//检查当前的client的写回缓冲区是否超过了soft限制和hard限制
     }
 }
 
@@ -1024,7 +1031,7 @@ void databasesCron(void) {
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
-            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);//清理过期的key，这个逻辑比较重要
         } else {
             expireSlaveKeys();
         }
@@ -1047,17 +1054,20 @@ void databasesCron(void) {
 
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+        //这里调整DB大小还是渐进式rehash都是调整底层的dict实例，一个是整整的dict实例，redis.dict，另一个是存储redisdb.expires
+
+
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTables(resize_db % server.dbnum);
+            tryResizeHashTables(resize_db % server.dbnum);//尝试调整db的大小，
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db);
+                int work_done = incrementallyRehash(rehash_db);//进行渐进式rehash，
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */
@@ -1083,7 +1093,7 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
      * context is safe since we will never fork() while here, in the main
      * thread. The logging function will call a thread safe version of
      * localtime that has no locks. */
-    if (update_daylight_info) {
+    if (update_daylight_info) {//设置夏令时
         struct tm tm;
         time_t ut = server.unixtime;
         localtime_r(&ut,&tm);
@@ -1103,6 +1113,7 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
  * calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
     const long long us = ustime();
+    //底层会更新server的秒，毫秒，微妙级时间戳
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
@@ -1162,7 +1173,7 @@ void cronUpdateMemoryStats() {
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
-
+    //至少100ms才会更新一次
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
          * We must sample the zmalloc_used at the same time we take the rss, otherwise
@@ -1210,7 +1221,7 @@ void cronUpdateMemoryStats() {
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
  */
-
+//
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -1219,15 +1230,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
      * handler if we don't return here fast enough. */
-    if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
+    //watchdog是用来诊断redis的延迟问题，我们可以使用CONFig set watchdog-period 500设置成500ms
+    if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);//调用这个函数重置watchdog定时器
 
     /* Update the time cache. */
-    updateCachedTime(1);
-
+    updateCachedTime(1);//更新时钟缓存
+    //server的那3个字段只会用在一些精度不高的地方使用，
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
-    if (server.dynamic_hz) {
+    if (server.dynamic_hz) {//动态调整值，根据客户端数量的多少来调整，客户端数量越多，hz也越大
         while (listLength(server.clients) / server.hz >
                MAX_CLIENTS_PER_CLOCK_TICK)
         {
@@ -1241,7 +1253,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* for debug purposes: skip actual cron work if pause_cron is on */
     if (server.pause_cron) return 1000/server.hz;
-
+//这里添加了一个宏函数，处理
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
@@ -1249,10 +1261,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
+        //执行100ms就会去更新一些值
+        //STATS_METRIC_COMMAND每秒执行的命令数
 
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
+        //从网络读取的字节数
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
                 stat_net_input_bytes + stat_net_repl_input_bytes);
+                //从网络写入的字节数
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
                 stat_net_output_bytes + stat_net_repl_output_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION,
@@ -1272,24 +1288,34 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    unsigned int lruclock = getLRUClock();
+    //更新LRU时钟
+    /*
+        redis最常见的就是用来做缓存，我们做缓存的时候一般不会存储DB中的所有数据，而是缓存DB中的热点数据，对于非热点数据，我们应该定时删除，防止内存爆炸
+        （用到了“内存淘汰”机制，redis提供了LRU算法来实现内存淘汰（淘汰最近最少使用的Key））
+        
+    
+    */
+   //计算24位lru时钟，低24位有效，高8位全是0
+    unsigned int lruclock = getLRUClock();//每100ms调用一次，更新一次全局的LRU时钟
+    //更新server.lruclock字段，进行缓存
     atomicSet(server.lruclock,lruclock);
 
-    cronUpdateMemoryStats();
+    cronUpdateMemoryStats();//更新内存使用统计信息
 
     /* We received a SIGTERM or SIGINT, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
+    //如果检测到shutdown_assp设置为1,servercron就会进入到进程终止的其理逻辑
     if (server.shutdown_asap && !isShutdownInitiated()) {
         int shutdownFlags = SHUTDOWN_NOFLAGS;
         if (server.last_sig_received == SIGINT && server.shutdown_on_sigint)
             shutdownFlags = server.shutdown_on_sigint;
         else if (server.last_sig_received == SIGTERM && server.shutdown_on_sigterm)
             shutdownFlags = server.shutdown_on_sigterm;
-
+        
         if (prepareForShutdown(shutdownFlags) == C_OK) exit(0);
     } else if (isShutdownInitiated()) {
         if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
-            if (finishShutdown() == C_OK) exit(0);
+            if (finishShutdown() == C_OK) exit(0);//针对主从复制以及持久化状态的保存
             /* Shutdown failed. Continue running. An error has been logged. */
         }
     }
@@ -1322,9 +1348,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
+    //管理客户端集合
     clientsCron();
 
     /* Handle background operations on Redis databases. */
+    //管理数据库
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
@@ -1471,7 +1499,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                           &ei);
 
     server.cronloops++;
-    return 1000/server.hz;
+    return 1000/server.hz;//多长时间触发一次
 }
 
 
@@ -1977,7 +2005,7 @@ void initServerConfig(void) {
     server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
     server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
 
-    unsigned int lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();//在初始化的时候，就设置好了这个lruclock字段
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
 
@@ -2646,6 +2674,8 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    //创建一个事件时间，其timeProc指向的是serverCron，就是时间到了，就会自动调用这个函数
+    //触发时间是1ms,这个函数会周期性的被调用，间隔不会超过1s
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -3391,14 +3421,14 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     incrCommandStatsOnError(NULL, 0);
 
-    const long long call_timer = ustime();
+    const long long call_timer = ustime();//获得当前系统时间
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
-    if (server.fixed_time_expire++ == 0) {
-        updateCachedTimeWithUs(0,call_timer);
+    if (server.fixed_time_expire++ == 0) {//这个只有在第一次操作的时候才会更新缓存
+        updateCachedTimeWithUs(0,call_timer);//更新缓存时间,call_timer存储的就是当前时间
     }
-
+    //在执行命令之前会更新一下缓存时间，
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
@@ -3409,7 +3439,7 @@ void call(client *c, int flags) {
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
-    ustime_t duration;
+    ustime_t duration;//可以使用程序启动至今的时间差来优化，而不用使用时间戳相减
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         duration = getMonotonicUs() - monotonic_start;
     else
@@ -3858,8 +3888,9 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
+    // 在调用call进行执行命令之前，先进行内存淘汰
     if (server.maxmemory && !isInsideYieldingLongCommand()) {
-        int out_of_memory = (performEvictions() == EVICT_FAIL);
+        int out_of_memory = (performEvictions() == EVICT_FAIL);//
 
         /* performEvictions may evict keys, so we need flush pending tracking
          * invalidation keys. If we don't do this, we may get an invalidation
@@ -3870,13 +3901,18 @@ int processCommand(client *c) {
         /* performEvictions may flush slave output buffers. This may result
          * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
+        
+        //is_denyoom_command是命令的flags中是否包含CMD_DENYOOM标志位
+        //这个标志位表示命令可能会导致redis内存使用率增加，在内存满了之后，就无法再执行命令了
 
+        //(deny_outof_memory)
         int reject_cmd_on_oom = is_denyoom_command;
         /* If client is in MULTI/EXEC context, queuing may consume an unlimited
          * amount of memory, so we want to stop that.
          * However, we never want to reject DISCARD, or even EXEC (unless it
          * contains denied commands, in which case is_denyoom_command is already
          * set. */
+        //当client通过事务执行多条命令时（CLIENT_MULTI）也必须保证内存充裕
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
@@ -3884,7 +3920,7 @@ int processCommand(client *c) {
             c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
-
+        //当内存达到上限，且无法淘汰数据的时候，就无法执行CMD_DENYOOM类型的命令
         if (out_of_memory && reject_cmd_on_oom) {
             rejectCommand(c, shared.oomerr);
             return C_OK;
@@ -4104,6 +4140,8 @@ void closeListeningSockets(int unlink_unix_socket) {
  * errors are logged but ignored and C_OK is returned.
  *
  * On success, this function returns C_OK and then it's OK to call exit(0). */
+//该函数包含了关闭网络监听，不再接收新的客户端连接
+//清空缓冲区等一系列操作
 int prepareForShutdown(int flags) {
     if (isShutdownInitiated()) return C_ERR;
 
@@ -6327,10 +6365,10 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
 
     return C_OK;
 }
-
+//处理进程终止函数
 static void sigShutdownHandler(int sig) {
     char *msg;
-
+    //输出日志信息
     switch (sig) {
     case SIGINT:
         msg = "Received SIGINT scheduling shutdown...";
@@ -6346,6 +6384,7 @@ static void sigShutdownHandler(int sig) {
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
+    //我们收到进程一次进程终止，会把shutdown_assp设置为1,如果第二次再调用的话，才会调用exit(1)退出
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
@@ -6358,7 +6397,7 @@ static void sigShutdownHandler(int sig) {
     server.shutdown_asap = 1;
     server.last_sig_received = sig;
 }
-
+//注册进程终止信号
 void setupSignalHandlers(void) {
     struct sigaction act;
 
@@ -6367,6 +6406,7 @@ void setupSignalHandlers(void) {
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
+    //SIGINT和SIGTERM两个信号都是有sigShutdownHandler进行操作
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
