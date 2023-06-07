@@ -1449,7 +1449,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
 
     serverLog(LL_NOTICE,"DB saved on disk");
-    server.dirty = 0;
+    server.dirty = 0;//持久化到了磁盘上面，那么这个值就重新设置为0
     server.lastsave = time(NULL);
     server.lastbgsave_status = C_OK;
     stopSaving(1);

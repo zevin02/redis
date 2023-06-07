@@ -874,7 +874,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     if (target) *target = value;
     return C_OK;
 }
-
+//从robj中解析出来o的存储的value
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
     if (getLongLongFromObject(o, &value) != C_OK) {

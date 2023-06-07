@@ -483,7 +483,7 @@ void flushSlaveKeysWithExpireList(void) {
         slaveKeysWithExpire = NULL;
     }
 }
-
+//检查当前的when是否已经过期了
 int checkAlreadyExpired(long long when) {
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
@@ -557,22 +557,25 @@ int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
  * the argv[2] parameter. The basetime is always specified in milliseconds.
  *
  * Additional flags are supported and parsed via parseExtendedExpireArguments */
+//basetime是当前的时间戳,
 void expireGenericCommand(client *c, long long basetime, int unit) {
-    robj *key = c->argv[1], *param = c->argv[2];
-    long long when; /* unix time in milliseconds when the key will expire. */
+    robj *key = c->argv[1], *param = c->argv[2];//key就是需要设置过期时间key，pararm就是需要过多长时间的间隔进行过期
+    long long when; /* unix time in milliseconds when the key will expire.when中是微妙级别的时间戳 */
     long long current_expire = -1;
     int flag = 0;
 
     /* checking optional flags */
+    //解析出使用的nx/xx/gt等标志位
     if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
         return;
     }
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-
+    //把param中的过期时间存储在when中
     /* EXPIRE allows negative numbers, but we can at least detect an
      * overflow by either unit conversion or basetime addition. */
+    //1.他会解析好命令中的指定key的过期时长，以当前时间为基准计算出过期的秒级时间戳
     if (unit == UNIT_SECONDS) {
         if (when > LLONG_MAX / 1000 || when < LLONG_MIN / 1000) {
             addReplyErrorExpireTime(c);
@@ -585,13 +588,15 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReplyErrorExpireTime(c);
         return;
     }
-    when += basetime;
+    when += basetime;//when现在就是计算好的一个微秒级的过期时间戳
 
     /* No key, return zero. */
+    //检查key是否存在，如果目标key不存在，直接返回0,不需要设置
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
+    //检查expir命令后面携带的参数，NX，XX，GT，LT等参数
 
     if (flag) {
         current_expire = getExpire(c->db, key);
@@ -637,9 +642,11 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         }
     }
 
+    //检查步骤1得到的when是否已经过起了，如果过期了，说明key的值也过期了，直接删除redidDB->dict集合中的key即可
     if (checkAlreadyExpired(when)) {
+        //这里说明已经过期了
         robj *aux;
-
+        //根据是否lazy_expire，来选择同步删除还是异步删除
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
                                                     dbSyncDelete(c->db,key);
         serverAssertWithInfo(c,key,deleted);
@@ -653,6 +660,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
+        //这个地方是还需要有一段时间才会过期
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         /* Propagate as PEXPIREAT millisecond-timestamp
@@ -676,6 +684,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 }
 
 /* EXPIRE key seconds [ NX | XX | GT | LT] */
+//expire的单位都是秒
 void expireCommand(client *c) {
     expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }

@@ -92,6 +92,10 @@ void updateLFU(robj *val) {
  * in the replication link. */
 //根据他的key，返回他维护的数据结构
 
+//定时删除：给每个key关联一个定时器记录key的过期时间，当key到期由定时器触发过期事件，执行key的清理工作，但是还需要额外维护一个定时器占用内存
+
+//定期删除：周期性的执行key的扫描，将扫描到的过期key删除，
+
 robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);//在全局的kv字段中根据key找到他对应的键值对
     robj *val = NULL;
@@ -112,6 +116,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
+            //惰性删除册策略：每次在访问一个key的时候，判断目标的key是否到期，如果到期就会将其进行删除，并且返回给客户端这个key不存在
+            //除此以外的时间不会主动去清理这个key，而是平滩到了每次访问这个key
+            //但是如果客户端长期不访问这些已经过期了key，这些key就会长期存留在内存中
         if (expireIfNeeded(db, key, expire_flags)) {//delete this key in db->dict 
             /* The key is no longer valid. */
             val = NULL;
@@ -329,11 +336,12 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Helper for sync and async delete. */
+//在该client指定的db中删除这个key
 static int dbGenericDelete(redisDb *db, robj *key, int async) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);//在db->expire中删除这个key
+    dictEntry *de = dictUnlink(db->dict,key->ptr);//从dict中获得要删除的节点，但是不删除并且返回这个key的de
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
@@ -346,7 +354,7 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
             dictSetVal(db->dict, de, NULL);
         }
         if (server.cluster_enabled) slotToKeyDelEntry(de, db);
-        dictFreeUnlinkedEntry(db->dict,de);
+        dictFreeUnlinkedEntry(db->dict,de);//把这个entry从db->dict中删除
         return 1;
     } else {
         return 0;
@@ -1555,10 +1563,13 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
-    kde = dictFind(db->dict,key->ptr);
+    kde = dictFind(db->dict,key->ptr);//从dict中查找到对应的entry
+
+    //之所以还需要再执行一次redisDB->dict查询，就是为了拿到key字符串，然后再expire中进行复用，让两个不同dictentry的key指针指向同一个key字符串实例(指针)
+
     serverAssertWithInfo(NULL,key,kde != NULL);
-    de = dictAddOrFind(db->expires,dictGetKey(kde));
-    dictSetSignedIntegerVal(de,when);
+    de = dictAddOrFind(db->expires,dictGetKey(kde));//往expire中添加这个kde,de就是这个kde的entry元素
+    dictSetSignedIntegerVal(de,when);//因为de的value是过期时间，所以，设置他的value为when,更新(设置)过期时间
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
@@ -1584,9 +1595,9 @@ long long getExpire(redisDb *db, robj *key) {
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     mstime_t expire_latency;
     latencyStartMonitor(expire_latency);
-    if (server.lazyfree_lazy_expire)
-        dbAsyncDelete(db,keyobj);
-    else
+    if (server.lazyfree_lazy_expire)//延时删除
+        dbAsyncDelete(db,keyobj);//把过期key放到后台线程来进行异步删除
+    else//立即删除，由主线程进行同步删除
         dbSyncDelete(db,keyobj);
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
@@ -1635,7 +1646,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
 
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
-    mstime_t when = getExpire(db,key);
+    mstime_t when = getExpire(db,key);//获得key的过期时间存储在when中
     mstime_t now;
 
     if (when < 0) return 0; /* No expire for this key */
@@ -1668,7 +1679,7 @@ int keyIsExpired(redisDb *db, robj *key) {
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
-    return now > when;
+    return now > when;//bow>when就说明这个key已经过期了
 }
 
 /* This function is called when we are going to perform some operation
@@ -1700,8 +1711,10 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
+//惰性删除策略(在访问这个key的时候，救护查看是否需要进行删除)
 int expireIfNeeded(redisDb *db, robj *key, int flags) {
-    if (!keyIsExpired(db,key)) return 0;
+    // 如果没有过期，就不需要执行后面的操作
+    if (!keyIsExpired(db,key)) return 0;//false说明这个key还没有过期
 
     /* If we are running in the context of a replica, instead of
      * evicting the expired key from the database, we return ASAP:
@@ -1716,6 +1729,8 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      *
      * When replicating commands from the master, keys are never considered
      * expired. */
+    // 这个地方说明这个key已经过期了，就需要执行过期操作
+
     if (server.masterhost != NULL) {
         if (server.current_client == server.master) return 0;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
@@ -1733,6 +1748,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
+    //决定延时删除key还是立即删除key
     deleteExpiredKeyAndPropagate(db,key);
     return 1;
 }

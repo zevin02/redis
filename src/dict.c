@@ -430,8 +430,8 @@ int dictReplace(dict *d, void *key, void *val)
  * See dictAddRaw() for more information. */
 dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
-    entry = dictAddRaw(d,key,&existing);
-    return entry ? entry : existing;
+    entry = dictAddRaw(d,key,&existing);//
+    return entry ? entry : existing;//如果entry为null说明这个key已经存在了，就是用existing，否则说明这个entry是新添加进去的entry
 }
 
 /* Search and remove an element. This is a helper function for

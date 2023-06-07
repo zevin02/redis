@@ -538,6 +538,7 @@ typedef enum {
 #define MAXMEMORY_NO_EVICTION (7<<8)
 
 /* Units */
+//设置中使用的单位
 #define UNIT_SECONDS 0
 #define UNIT_MILLISECONDS 1
 
@@ -1777,7 +1778,7 @@ struct redisServer {
                                         default no. (for testings). */
 
     /* RDB persistence */
-    long long dirty;                /* Changes to DB from the last save */
+    long long dirty;                /* Changes to DB from the last save 这个字段是key修改但是还没有持久化到磁盘上的数，如果持久化到了磁盘上，计数就会递减*/
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */
     long long rdb_last_load_keys_loaded;   /* number of loaded keys when loading RDB */

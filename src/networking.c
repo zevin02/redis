@@ -1449,7 +1449,7 @@ void freeClientOriginalArgv(client *c) {
     c->original_argv = NULL;
     c->original_argc = 0;
 }
-
+//释放argv的空间
 void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
