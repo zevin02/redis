@@ -381,12 +381,12 @@ void decrRefCount(robj *o) {
         case OBJ_LIST: freeListObject(o); break;
         case OBJ_SET: freeSetObject(o); break;
         case OBJ_ZSET: freeZsetObject(o); break;
-        case OBJ_HASH: freeHashObject(o); break;
+        case OBJ_HASH: freeHashObject(o); break;//如果是hash，就需要删除里面的所有元素，再删除这个对象
         case OBJ_MODULE: freeModuleObject(o); break;
         case OBJ_STREAM: freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        zfree(o);
+        zfree(o);//如果是一个连续的空间，就直接删除
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");//应用计数小于等于0还调用这个函数，就有问题了
         if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;//如果不是最大值，就减少引用计数即可

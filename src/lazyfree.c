@@ -8,6 +8,7 @@ static redisAtomic size_t lazyfreed_objects = 0;
 
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
+//通常情况下只有一个参数床给这个指针
 void lazyfreeFreeObject(void *args[]) {
     robj *o = (robj *) args[0];
     decrRefCount(o);
@@ -101,12 +102,13 @@ void lazyfreeResetStats() {
  *
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
+//计算回收的成本
 size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
-    if (obj->type == OBJ_LIST) {
+    if (obj->type == OBJ_LIST) {//如果是list就是查看节点个数
         quicklist *ql = obj->ptr;
         return ql->len;
     } else if (obj->type == OBJ_SET && obj->encoding == OBJ_ENCODING_HT) {
-        dict *ht = obj->ptr;
+        dict *ht = obj->ptr;//如果是set和hash用hashtable就是查看节点个数
         return dictSize(ht);
     } else if (obj->type == OBJ_ZSET && obj->encoding == OBJ_ENCODING_SKIPLIST){
         zset *zs = obj->ptr;
@@ -157,16 +159,16 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
 
 /* Free an object, if the object is huge enough, free it in async way. */
 void freeObjAsync(robj *key, robj *obj, int dbid) {
-    size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);
+    size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);//计算回收成本，如果是连续空间就是1,如果是dict就是看有多少个元素
     /* Note that if the object is shared, to reclaim it now it is not
      * possible. This rarely happens, however sometimes the implementation
      * of parts of the Redis core may call incrRefCount() to protect
      * objects, and then call dbDelete(). */
-    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
+    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {//如果没有达到lazy的阈值，就不会交给异步线程去工作
         atomicIncr(lazyfree_objects,1);
-        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
+        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);//因为这里使用到的是可变参数，所以第二个值就是他的参数的个数
     } else {
-        decrRefCount(obj);
+        decrRefCount(obj);//同步删除，减少引用计数，或者是
     }
 }
 

@@ -1712,6 +1712,16 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 //惰性删除策略(在访问这个key的时候，救护查看是否需要进行删除)
+/*
+    由于删除过期key的操作和手动删除key的逻辑基本一样，但是由于redis始终是单线程执行所有命令和时间事件，所以删除一个大key就会是一个非常耗时操作
+    释放内存和开辟内存都是一个比较耗时的操作
+    redis4开始引入了lazy free，解决的就是key阻塞主线程带来的性能问题：就是在删除大key的时候，将任务释放到子线程去执行，减少子线程浪费在删除大key上的时间
+    让主线程能够及时响应客户端的其他请求
+
+*/
+
+
+
 int expireIfNeeded(redisDb *db, robj *key, int flags) {
     // 如果没有过期，就不需要执行后面的操作
     if (!keyIsExpired(db,key)) return 0;//false说明这个key还没有过期
