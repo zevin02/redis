@@ -413,10 +413,12 @@ void dismissListObject(robj *o, size_t size_hint) {
         /* We iterate all nodes only when average node size is bigger than a
          * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / ql->len >= server.page_size) {
+            //检查quicklist节点的平均大小是否超过了4k，如果超过了就需要走dismissmemory来进行释放（由于这个数据已经被写入到rdb文件中了，所以释放页没关系）
             quicklistNode *node = ql->head;
+            //
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
-                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);
+                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);//调用dismiss来进行释放
                 } else {
                     dismissMemory(node->entry, node->sz);
                 }
@@ -544,6 +546,7 @@ void dismissStreamObject(robj *o, size_t size_hint) {
  * not going to release any memory. */
 void dismissObject(robj *o, size_t size_hint) {
     /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    //如果系统开启thp的话，madvise优化就不会使用了
     if (server.thp_enabled) return;
 
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.

@@ -109,13 +109,20 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Max % of CPU to use. */
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
-
+//慢速会保证每次执行的时长不超过25s，默认servercron执行；频率是10的时候，每秒这个占用的不到250ms
+//快速：执行频率高，每次执行的次数短，能够扫描到的key也少，
 void activeExpireCycle(int type) {
     /* Adjust the running parameters according to the configured expire
      * effort. The default effort is 1, and the maximum configurable effort
      * is 10. */
+    //根据配置的过期key清理工作程度调度运行参数
+    //perloop:一次扫描的key总数超过了该值就停止扫描
+    //fast_duration:计算快速模式下耗时的上限
+    //slow：慢速模式下耗时的上限
+    //acceptable:统计其中已经过期的key占比，持续扫描该db回收已经过期的key
     unsigned long
-    effort = server.active_expire_effort-1, /* Rescale from 0 to 9. */
+    effort = server.active_expire_effort-1, /* Rescale from 0 to 9. 重新缩放*/
+
     config_keys_per_loop = ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP +
                            ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP/4*effort,
     config_cycle_fast_duration = ACTIVE_EXPIRE_CYCLE_FAST_DURATION +
@@ -127,12 +134,14 @@ void activeExpireCycle(int type) {
 
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Next DB to test. */
-    static int timelimit_exit = 0;      /* Time limit hit in previous call? */
-    static long long last_fast_cycle = 0; /* When last fast cycle ran. */
+    static unsigned int current_db = 0; /* Next DB to test.记录上一次调用扫描的db编号，我们一般都是使用0号编号 */
+    static int timelimit_exit = 0;      /* Time limit hit in previous call? 记录上一次是不是因为超时退出*/
+    static long long last_fast_cycle = 0; /* When last fast cycle ran. 记录上一次fast的时间点*/
 
     int j, iteration = 0;
+    //默认每次处理的数据库数量
     int dbs_per_call = CRON_DBS_PER_CALL;
+    //函数开始的时间
     long long start = ustime(), timelimit, elapsed;
 
     /* When clients are paused the dataset should be static not just from the
@@ -145,10 +154,13 @@ void activeExpireCycle(int type) {
          * for time limit, unless the percentage of estimated stale keys is
          * too high. Also never repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
+        //针对快速模式的调用
+        //当前有超过10%的key可以过期
+        //如果上一次没有触发timelimit_exit就不触发
         if (!timelimit_exit &&
             server.stat_expired_stale_perc < config_cycle_acceptable_stale)
             return;
-
+        //距离上一次的调用超过2000us
         if (start < last_fast_cycle + (long long)config_cycle_fast_duration*2)
             return;
 
@@ -162,6 +174,8 @@ void activeExpireCycle(int type) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
+    //1.当前数据库数量小于16
+    //2.如果上一次遇到了时间问题，就需要对所有数据库扫描
     if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
@@ -169,6 +183,7 @@ void activeExpireCycle(int type) {
      * time per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
+    //函数处理的微妙上限
     timelimit = config_cycle_slow_time_perc*1000000/server.hz/100;
     timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
@@ -187,16 +202,17 @@ void activeExpireCycle(int type) {
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
     server.propagate_no_multi = 1;
-
+    //遍历数据库
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
         unsigned long expired, sampled;
-
+        //指向当前要处理的数据库
         redisDb *db = server.db+(current_db % server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
+        //为db计数器+1,如果do循环超时跳出，下一次会直接从下一个db开始处理
         current_db++;
 
         /* Continue to expire if at the end of the cycle there are still
@@ -210,26 +226,35 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
+            //获取数据库中过期key的数量
+            //如果该数量为0,就跳过这个数据库
             if ((num = dictSize(db->expires)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
+            //获得数据库中键值对的总数量
             slots = dictSlots(db->expires);
+            //记录当前时间
             now = mstime();
 
             /* When there are less than 1% filled slots, sampling the key
              * space is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
+            //这个数据库使用率小于1%，扫描起来大多数都会错过，跳过，等待字典收缩程序
             if (slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
             /* The main collection cycle. Sample random keys among keys
              * with an expire set, checking for expired ones. */
+            //已处理的过期key计数器
             expired = 0;
+            
             sampled = 0;
+            //key的总ttl计数器
             ttl_sum = 0;
+            //总共处理的key计数器
             ttl_samples = 0;
-
+            //每次只能检查config_keys_per_loo最多
             if (num > config_keys_per_loop)
                 num = config_keys_per_loop;
 
@@ -245,14 +270,14 @@ void activeExpireCycle(int type) {
              * than keys in the same time. */
             long max_buckets = num*20;
             long checked_buckets = 0;
-
+            //开始遍历数据库
             while (sampled < num && checked_buckets < max_buckets) {
                 for (int table = 0; table < 2; table++) {
                     if (table == 1 && !dictIsRehashing(db->expires)) break;
 
                     unsigned long idx = db->expires_cursor;
                     idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
-                    dictEntry *de = db->expires->ht_table[table][idx];
+                    dictEntry *de = db->expires->ht_table[table][idx];//在过期key中查找
                     long long ttl;
 
                     /* Scan the current bucket of the current table. */
@@ -263,12 +288,12 @@ void activeExpireCycle(int type) {
                         dictEntry *e = de;
                         de = de->next;
 
-                        ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
+                        ttl = dictGetSignedIntegerVal(e)-now;//计算过期的时间
+                        if (activeExpireCycleTryExpire(db,e,now)) expired++;//处理
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
                              * not expired. */
-                            ttl_sum += ttl;
+                            ttl_sum += ttl;//增加ttl的值
                             ttl_samples++;
                         }
                         sampled++;
@@ -280,23 +305,27 @@ void activeExpireCycle(int type) {
             total_sampled += sampled;
 
             /* Update the average TTL stats for this database. */
+            //为这个数据库更新平均ttl值
             if (ttl_samples) {
-                long long avg_ttl = ttl_sum/ttl_samples;
+                long long avg_ttl = ttl_sum/ttl_samples;//平均ttl值
 
                 /* Do a simple running average with a few samples.
                  * We just use the current estimate with a weight of 2%
                  * and the previous estimate with a weight of 98%. */
                 if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
+                //取上一次的平均和这次进行平均
                 db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
             }
 
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
+            //每16次执行一次
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
                 elapsed = ustime()-start;
+                //检查是否达到的执行的上限
                 if (elapsed > timelimit) {
-                    timelimit_exit = 1;
+                    timelimit_exit = 1;//断开
                     server.stat_expired_time_cap_reached_count++;
                     break;
                 }
@@ -304,6 +333,7 @@ void activeExpireCycle(int type) {
             /* We don't repeat the cycle for the current database if there are
              * an acceptable amount of stale keys (logically expired but yet
              * not reclaimed). */
+            //如果当前已经删除的key占总数的超过25%，就不需要遍历
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }

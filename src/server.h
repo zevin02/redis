@@ -135,6 +135,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_MEM_USAGE_BUCKET_MAX_LOG 33 /* Bucket for largest clients: sizes above 4GB (2^32) */
 #define CLIENT_MEM_USAGE_BUCKETS (1+CLIENT_MEM_USAGE_BUCKET_MAX_LOG-CLIENT_MEM_USAGE_BUCKET_MIN_LOG)
 
+
+//定期删除的逻辑
+//慢速：执行频率低，是在每次servercron中执行时间事件，能够扫描到的key数量比较多，在慢速中activeexpire
+
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
@@ -593,7 +597,7 @@ typedef enum {
     CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
 } cluster_endpoint_type;
 
-/* RDB active child save type. */
+/* RDB active child save type. rdb写入到的地方是磁盘还是socket*/
 #define RDB_CHILD_TYPE_NONE 0
 #define RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
 #define RDB_CHILD_TYPE_SOCKET 2   /* RDB is written to slave socket. */
@@ -1260,8 +1264,8 @@ typedef struct client {
 } client;
 
 struct saveparam {
-    time_t seconds;
-    int changes;
+    time_t seconds;//间隔的时间
+    int changes;//修改的key的个数
 };
 
 struct moduleLoadQueueEntry {
@@ -1525,7 +1529,7 @@ typedef enum childInfoType {
     CHILD_INFO_TYPE_AOF_COW_SIZE,
     CHILD_INFO_TYPE_RDB_COW_SIZE,
     CHILD_INFO_TYPE_MODULE_COW_SIZE
-} childInfoType;
+} childInfoType;//子进程发送信息的时候正处于的状态是什么
 
 
 //我们启动的每一个redis实例都是一个redisServer对象，其中包含了存储键值对的数据库实例，配置文件地址，命令行列表，redis实例的监听地址
@@ -1545,7 +1549,7 @@ struct redisServer {
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz ,serverCron（）1s触发的次数*/
-    int in_fork_child;          /* indication that this is a fork child */
+    int in_fork_child;          /* indication that this is a fork child 该子进程在执行的操作*/
     redisDb *db;                //存储键值队数据的redisDb实例，这个指针指向了一个长度为dbnum的redisdb数组
     dict *commands;             /* Command table 当前redis能处理的命令列表，key是命令名，value是执行命令的入口,就是一个redisCommand对象*/
     dict *orig_commands;        /* Command table before command renaming. */
@@ -1582,8 +1586,8 @@ struct redisServer {
     dict *module_configs_queue; /* Dict that stores module configurations from .conf file until after modules are loaded during startup or arguments to loadex. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
-    pid_t child_pid;            /* PID of current child */
-    int child_type;             /* Type of current child */
+    pid_t child_pid;            /* PID of current child 当前服务器的子进程，redis默认只能最多1个子进程，为了避免数据的冲突*/
+    int child_type;             /* Type of current child 子进程目前的行为*/
     /* Networking */
     int port;                   /* TCP listening port 当前redis实例监听的端口6379*/
     int tls_port;               /* TLS listening port */
@@ -1663,10 +1667,10 @@ struct redisServer {
     size_t stat_peak_memory;        /* Max used memory record 内存使用的峰值*/
     long long stat_aof_rewrites;    /* number of aof file rewrites performed */
     long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
-    long long stat_rdb_saves;       /* number of rdb saves performed */
-    long long stat_fork_time;       /* Time needed to perform latest fork() */
+    long long stat_rdb_saves;       /* number of rdb saves performed rdb执行的次数*/
+    long long stat_fork_time;       /* Time needed to perform latest fork() 记录fork花费的时间*/
     double stat_fork_rate;          /* Fork rate in GB/sec. */
-    long long stat_total_forks;     /* Total count of fork. */
+    long long stat_total_forks;     /* Total count of fork. 记录fork的次数*/
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
@@ -1683,7 +1687,7 @@ struct redisServer {
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
-    size_t stat_current_save_keys_processed;  /* Processed keys while child is active. */
+    size_t stat_current_save_keys_processed;  /* Processed keys while child is active. 记录子进程rdb处理的key的个数*/
     size_t stat_current_save_keys_total;  /* Number of keys when child started. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
@@ -1779,23 +1783,23 @@ struct redisServer {
 
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save 这个字段是key修改但是还没有持久化到磁盘上的数，如果持久化到了磁盘上，计数就会递减*/
-    long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+    long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE 调用bgsave的时候，有多少的dirty key*/
     long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */
     long long rdb_last_load_keys_loaded;   /* number of loaded keys when loading RDB */
-    struct saveparam *saveparams;   /* Save points array for RDB */
-    int saveparamslen;              /* Number of saving points */
-    char *rdb_filename;             /* Name of RDB file */
+    struct saveparam *saveparams;   /* Save points array for RDB rdb的持久化的参数*/
+    int saveparamslen;              /* Number of saving points rdb参数的长度*/
+    char *rdb_filename;             /* Name of RDB file rdb 的文件名*/
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     int rdb_del_sync_files;         /* Remove RDB files used only for SYNC if
                                        the instance does not use persistence. */
-    time_t lastsave;                /* Unix time of last successful save */
-    time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
-    time_t rdb_save_time_last;      /* Time used by last RDB save run. */
+    time_t lastsave;                /* Unix time of last successful save 上一次成功的rdb的时间戳*/
+    time_t lastbgsave_try;          /* Unix time of last attempted bgsave 上一次尝试执行后台tdb的时间戳*/
+    time_t rdb_save_time_last;      /* Time used by last RDB save run. rdb花费的时间*/
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
-    int rdb_child_type;             /* Type of save by active child. */
-    int lastbgsave_status;          /* C_OK or C_ERR */
+    int rdb_child_type;             /* Type of save by active child. 子进程是在磁盘上操作的还是在socket连接中*/
+    int lastbgsave_status;          /* C_OK or C_ERR 上一次后台rdb的结果*/
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_read;              /* RDB pipe used to transfer the rdb data */
                                     /* to the parent process in diskless repl. */
@@ -1812,7 +1816,7 @@ struct redisServer {
                                      * loading aof or rdb. (for testings). negative
                                      * value means fractions of microseconds (on average). */
     /* Pipe and data structures for child -> parent info sharing. */
-    int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
+    int child_info_pipe[2];         /* Pipe used to write the child_info_data. 该管道用来做父子进程的通信*/
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */

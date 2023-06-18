@@ -296,8 +296,8 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
  * Return value is the length of compressed LZF data. */
 size_t quicklistGetLzf(const quicklistNode *node, void **data) {
     quicklistLZF *lzf = (quicklistLZF *)node->entry;
-    *data = lzf->compressed;
-    return lzf->sz;
+    *data = lzf->compressed;//获得当前压缩后的实际数据
+    return lzf->sz;//压缩后的长度
 }
 
 #define quicklistAllowsCompression(_ql) ((_ql)->compress != 0)

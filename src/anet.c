@@ -651,6 +651,10 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
 #if defined(__linux__) || defined(__FreeBSD__)
     /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
      * There is no harm to set O_CLOEXEC to prevent fd leaks. */
+    /*
+        pipe2的选项：O_cloexec :在pipefd文件描述符上设置FD_CLOEXEC 标志位，意味着执行exec的之后，文件描述符就关闭掉，防止文件描述符泄漏
+        O_NONBLOCK:设置为非阻塞的模式
+    */
     pipe_flags = O_CLOEXEC | (read_flags & write_flags);
     if (pipe2(fds, pipe_flags)) {
         /* Fail on real failures, and fallback to simple pipe if pipe2 is unsupported. */
@@ -658,11 +662,12 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
             return -1;
         pipe_flags = 0;
     } else {
+        //管道创建成功
         /* If the flags on both ends are identical, no need to do anything else. */
         if ((O_CLOEXEC | read_flags) == (O_CLOEXEC | write_flags))
             return 0;
         /* Clear the flags which have already been set using pipe2. */
-        read_flags &= ~pipe_flags;
+        read_flags &= ~pipe_flags;//在读取端和写入段去除已经通过的标志，得到剩余的标志
         write_flags &= ~pipe_flags;
     }
 #endif
@@ -674,6 +679,7 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
 
     /* File descriptor flags.
      * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
+    //设置管道文件描述符的状态
     if (read_flags & O_CLOEXEC)
         if (fcntl(fds[0], F_SETFD, FD_CLOEXEC))
             goto error;

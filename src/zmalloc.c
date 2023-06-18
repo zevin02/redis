@@ -64,7 +64,7 @@ void zlibc_free(void *ptr) {
 #if defined(__sun) || defined(__sparc) || defined(__sparc__)
 #define PREFIX_SIZE (sizeof(long long))
 #else
-#define PREFIX_SIZE (sizeof(size_t))
+#define PREFIX_SIZE (sizeof(size_t))        //前面的4个字节存储的就是这个内存块的大小
 #endif
 #define ASSERT_NO_SIZE_OVERFLOW(sz) assert((sz) + PREFIX_SIZE > (sz))
 #endif
@@ -293,10 +293,11 @@ void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
  * malloc itself, given that in that case we store a header with this
  * information as the first bytes of every allocation. */
 #ifndef HAVE_MALLOC_SIZE
+//用于获得动态内存分配的大小，我们在内存的时候，内存块的前几个字节包含了分配的内存块的大小
 size_t zmalloc_size(void *ptr) {
-    void *realptr = (char*)ptr-PREFIX_SIZE;
-    size_t size = *((size_t*)realptr);
-    return size+PREFIX_SIZE;
+    void *realptr = (char*)ptr-PREFIX_SIZE;//获得真正内存开辟时候的指针
+    size_t size = *((size_t*)realptr);//前面的4个字节中存储的就是这个内存块的大小
+    return size+PREFIX_SIZE;//这个内存块的大小，加上前面的头部的大小，就是整个malloc时候申请的内存块的大小
 }
 size_t zmalloc_usable_size(void *ptr) {
     return zmalloc_size(ptr)-PREFIX_SIZE;
@@ -361,21 +362,24 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
 /* Use 'MADV_DONTNEED' to release memory to operating system quickly.
  * We do that in a fork child process to avoid CoW when the parent modifies
  * these shared pages. */
+//底层调用madvise来释放节点
 void zmadvise_dontneed(void *ptr) {
 #if defined(USE_JEMALLOC) && defined(__linux__)
     static size_t page_size = 0;
-    if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);
-    size_t page_size_mask = page_size - 1;
+    if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);//获得页面的大小
+    size_t page_size_mask = page_size - 1;//获得一个掩码
 
-    size_t real_size = zmalloc_size(ptr);
+    size_t real_size = zmalloc_size(ptr);//获得这个内存块的大小
     if (real_size < page_size) return;
 
     /* We need to align the pointer upwards according to page size, because
      * the memory address is increased upwards and we only can free memory
      * based on page. */
-    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) & ~page_size_mask);
+    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) & ~page_size_mask);//按照4k来对其
     real_size -= (aligned_ptr-(char*)ptr);
     if (real_size >= page_size) {
+        //传入了MADV_dontneed告诉操作系统这个进程不再需要这个内存页了，操作系统可以把他标记为“未分配”
+        //这样进程的RSS值就会立即下降
         madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
     }
 #else
@@ -649,6 +653,21 @@ int jemalloc_purge() {
  * Example: zmalloc_get_smap_bytes_by_field("Rss:",-1);
  */
 #if defined(HAVE_PROC_SMAPS)
+
+    //通过这个文件我们可以看到一个进程的映射的内存取与以及这个区域的使用情况
+    /*
+        size:进程使用的内存空间，并不一定实际分配了物理内存
+        Rss:实际主流在“内存中”内存数，不包括已经交换出的内存页表，Rss还包括了与其他进程共享的内存区域，通常用于共享页
+        Pss:Rss中的私有内存页
+        Shared_Clean：Rss 中和其他进程共享的未改写内存页。
+
+        Shared_Dirty：Rss 中和其他进程共享的已改写内存页。
+
+        Private_Clean：Rss 中改写的私有内存页。
+
+        Private_Dirty：Rss 中已改写的私有内存页，如果出现换页，该页的内容需要写回磁盘。
+    */
+   //子进程就是通过遍历每个内存取与的private_dirty来确认cow的字节数
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     char line[1024];
     size_t bytes = 0;
@@ -656,7 +675,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     FILE *fp;
 
     if (pid == -1) {
-        fp = fopen("/proc/self/smaps","r");
+        fp = fopen("/proc/self/smaps","r");//打开这个页面
     } else {
         char filename[128];
         snprintf(filename,sizeof(filename),"/proc/%ld/smaps",pid);
@@ -665,6 +684,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 
     if (!fp) return 0;
     while(fgets(line,sizeof(line),fp) != NULL) {
+        //遍历每个页面中的private_dirty的字节大小
         if (strncmp(line,field,flen) == 0) {
             char *p = strchr(line,'k');
             if (p) {
@@ -714,7 +734,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
  * call can be slow, exceeding 1000ms!
  */
 size_t zmalloc_get_private_dirty(long pid) {
-    return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
+    return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);//通过打开内存文件，获得private_dirty字段，来计算总共的cow字节大小
 }
 
 /* Returns the size of physical memory (RAM) in bytes.

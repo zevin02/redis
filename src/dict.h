@@ -213,10 +213,11 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define randomULong() random()
 #endif
 
+//dict大小调整机制
 typedef enum {
-    DICT_RESIZE_ENABLE,
-    DICT_RESIZE_AVOID,
-    DICT_RESIZE_FORBID,
+    DICT_RESIZE_ENABLE,//启动
+    DICT_RESIZE_AVOID,//避免
+    DICT_RESIZE_FORBID,//禁止
 } dictResizeEnable;
 
 /* API */

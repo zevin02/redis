@@ -1078,9 +1078,9 @@ int fsyncFileDir(const char *filename) {
 
     /* In the glibc implementation dirname may modify their argument. */
     memcpy(temp_filename, filename, strlen(filename) + 1);
-    dname = dirname(temp_filename);
+    dname = dirname(temp_filename);//获得目录的路径
 
-    dir_fd = open(dname, O_RDONLY);
+    dir_fd = open(dname, O_RDONLY);//打开目录，获得他的文件描述符
     if (dir_fd == -1) {
         /* Some OSs don't allow us to open directories at all, just
          * ignore the error in that case */
@@ -1091,6 +1091,7 @@ int fsyncFileDir(const char *filename) {
     }
     /* Some OSs don't allow us to fsync directories at all, so we can ignore
      * those errors. */
+    //同步刷新目录,保证目录的内容再磁盘上得到同步刷新，以确保文件系统的一致性和持久性
     if (redis_fsync(dir_fd) == -1 && !(errno == EBADF || errno == EINVAL)) {
         int save_errno = errno;
         close(dir_fd);

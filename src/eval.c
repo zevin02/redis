@@ -884,6 +884,7 @@ int ldbRemoveChild(pid_t pid) {
 
 /* Return the number of children we still did not receive termination
  * acknowledge via wait() in the parent process. */
+//获得当前仍然在运行的子进程
 int ldbPendingChildren(void) {
     return listLength(ldb.children);
 }

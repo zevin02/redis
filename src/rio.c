@@ -108,23 +108,27 @@ void rioInitWithBuffer(rio *r, sds s) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
+    //没有使用自动刷盘，就直接调用fwrite写入
     if (!r->io.file.autosync) return fwrite(buf,len,1,r->io.file.fp);
-
+    
+    //这个地方会检查是否设置了sync的上限
+    //如果启动了增量刷盘：在每次写入数据的时候都会将写入的字节数量写到buffer中，如果超过了上限，就会启动fflush和fsync进行自动刷盘
+    //防止rdb文件进行刷盘导致磁盘IO出现尖刺（磁盘突然的出现高负载）
     size_t nwritten = 0;
     /* Incrementally write data to the file, avoid a single write larger than
      * the autosync threshold (so that the kernel's buffer cache never has too
      * many dirty pages at once). */
     while (len != nwritten) {
         serverAssert(r->io.file.autosync > r->io.file.buffered);
-        size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);
-        size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;
-
+        size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);//单次最多写入字节数
+        size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;//记录此次要写入的字节大小
+        //将buf的数据写入到file*中
         if (fwrite((char*)buf+nwritten,towrite,1,r->io.file.fp) == 0) return 0;
         nwritten += towrite;
         r->io.file.buffered += towrite;
 
         if (r->io.file.buffered >= r->io.file.autosync) {
-            fflush(r->io.file.fp);
+            fflush(r->io.file.fp);//处理的数量超过了上限值，就进行一个刷盘,数据刷到内核缓冲区中
 
             size_t processed = r->processed_bytes + nwritten;
             serverAssert(processed % r->io.file.autosync == 0);
@@ -132,11 +136,22 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
 
 #if HAVE_SYNC_FILE_RANGE
             /* Start writeout asynchronously. */
+            //进行异步刷盘，这样可以避免不必要的磁盘写入操作，减少写入操作的延迟
+            //例如：对于一个大型的数据库系统，每次事务提交时调用这个函数，可以只将设计到的数据刷新到磁盘中，而不是等所有数据满了，才写到磁盘中
+
+            /*
+                在rdb持久化的场景下会有大量的数据写入到磁盘中，如果启动了fsync配置，可能会出现频繁刷盘情况
+                刷盘也是一个比较慢的操作，会带来比较严重的性能问题
+
+                sync_file_range不会去写metadata，在我们每次写一小部分的数据后可以立即调用sync_file_range，等到整个rdb写入之后，再调用fsync就很快了
+            */
+
             if (sync_file_range(fileno(r->io.file.fp),
                     processed - r->io.file.autosync, r->io.file.autosync,
-                    SYNC_FILE_RANGE_WRITE) == -1)
+                    SYNC_FILE_RANGE_WRITE) == -1)//这个是一个异步刷盘，函数立即放回
                 return 0;
-
+            //
+            //周期性调用异步刷盘，如果异步刷盘没有堆集，这里的同步刷盘就很快了
             if (processed >= (size_t)r->io.file.autosync * 2) {
                 /* To keep the promise to 'autosync', we should make sure last
                  * asynchronous writeout persists into disk. This call may block
@@ -144,11 +159,11 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
                 if (sync_file_range(fileno(r->io.file.fp),
                         processed - r->io.file.autosync*2,
                         r->io.file.autosync, SYNC_FILE_RANGE_WAIT_BEFORE|
-                        SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1)
+                        SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1)//这个同步写入的目的是为了保证之前的异步写入已经持久化到了磁盘中
                     return 0;
             }
 #else
-            if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
+            if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;//如果没有这个异步写入的设置，就使用fsync来进行刷盘
 #endif
             r->io.file.buffered = 0;
         }
@@ -169,11 +184,11 @@ static off_t rioFileTell(rio *r) {
 /* Flushes any buffer to target device if applicable. Returns 1 on success
  * and 0 on failures. */
 static int rioFileFlush(rio *r) {
-    return (fflush(r->io.file.fp) == 0) ? 1 : 0;
+    return (fflush(r->io.file.fp) == 0) ? 1 : 0;//刷盘
 }
-
+//
 static const rio rioFileIO = {
-    rioFileRead,
+    rioFileRead,/*rio为file时调用read的时候，调用的就是这个函数*/
     rioFileWrite,
     rioFileTell,
     rioFileFlush,
@@ -184,9 +199,9 @@ static const rio rioFileIO = {
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
-
+//初始化file的
 void rioInitWithFile(rio *r, FILE *fp) {
-    *r = rioFileIO;
+    *r = rioFileIO;//初始化这个rio结构体
     r->io.file.fp = fp;
     r->io.file.buffered = 0;
     r->io.file.autosync = 0;
@@ -435,7 +450,7 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
  * way instead the I/O pressure is more distributed across time. */
 void rioSetAutoSync(rio *r, off_t bytes) {
     if(r->write != rioFileIO.write) return;
-    r->io.file.autosync = bytes;
+    r->io.file.autosync = bytes;//设置自动刷盘的字节数
 }
 
 /* Check the type of rio. */
@@ -466,7 +481,7 @@ size_t rioWriteBulkCount(rio *r, char prefix, long count) {
     clen = 1+ll2string(cbuf+1,sizeof(cbuf)-1,count);
     cbuf[clen++] = '\r';
     cbuf[clen++] = '\n';
-    if (rioWrite(r,cbuf,clen) == 0) return 0;
+    if (rioWrite(r,cbuf,clen) == 0) return 0;//多次调用riowrite函数组合出来的方法
     return clen;
 }
 

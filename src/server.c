@@ -610,6 +610,7 @@ int incrementallyRehash(int dbid) {
  * for dict.c to resize or rehash the tables accordingly to the fact we have an
  * active fork child running. */
 void updateDictResizePolicy(void) {
+    //根据后台进程的状态来更新hash table的大小调整策略
     if (server.in_fork_child != CHILD_TYPE_NONE)
         dictSetResizeEnabled(DICT_RESIZE_FORBID);
     else if (hasActiveChildProcess())
@@ -1031,7 +1032,7 @@ void databasesCron(void) {
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
-            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);//清理过期的key，这个逻辑比较重要
+            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);//清理过期的key，这个逻辑比较重要,慢速执行定期删除的策略
         } else {
             expireSlaveKeys();
         }
@@ -1116,15 +1117,20 @@ void updateCachedTime(int update_daylight_info) {
     //底层会更新server的秒，毫秒，微妙级时间戳
     updateCachedTimeWithUs(update_daylight_info, us);
 }
-
+//这个函数就是重置子进程的状态，以便重新使用
+//删除和rdb保存相关的临时文件
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
-
+    //WNOHANG是父进程在等待子进程的时候，使用非阻塞，如果没有子进程退出，就返回0,否则就返回子进程的pid；这样可以让父进程不被阻塞住，能够定时的检查子进程是否已经退出
+    //-1表示等待任意一个子进程退出
     if ((pid = waitpid(-1, &statloc, WNOHANG)) != 0) {
+        //这个地方说明子进程已经退出
+        //检查子进程是否正常退出，如果正常退出，则通过WEXITSTATUS获得退出码，如果不是正常退出就设置为-1
+
         int exitcode = WIFEXITED(statloc) ? WEXITSTATUS(statloc) : -1;
         int bysignal = 0;
-
+        //检查子进程是否是因为型号终止的，如果是就获得相应的信号
         if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
         /* sigKillChildHandler catches the signal and calls exit(), but we
@@ -1132,7 +1138,7 @@ void checkChildrenDone(void) {
          * We could directly terminate the child process via SIGUSR1
          * without handling it */
         if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
-            bysignal = SIGUSR1;
+            bysignal = SIGUSR1;//设置信号为自定义的信号
             exitcode = 1;
         }
 
@@ -1143,8 +1149,9 @@ void checkChildrenDone(void) {
                 strChildType(server.child_type),
                 (int) server.child_pid);
         } else if (pid == server.child_pid) {
+            //获得的pid就是server中的，就是正确的
             if (server.child_type == CHILD_TYPE_RDB) {
-                backgroundSaveDoneHandler(exitcode, bysignal);
+                backgroundSaveDoneHandler(exitcode, bysignal);//执行回调逻辑
             } else if (server.child_type == CHILD_TYPE_AOF) {
                 backgroundRewriteDoneHandler(exitcode, bysignal);
             } else if (server.child_type == CHILD_TYPE_MODULE) {
@@ -1166,6 +1173,7 @@ void checkChildrenDone(void) {
         /* start any pending forks immediately. */
         replicationStartPendingFork();
     }
+    //子进程没有退出，等待下一次定时任务中的检查
 }
 
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
@@ -1352,7 +1360,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     clientsCron();
 
     /* Handle background operations on Redis databases. */
-    //管理数据库
+    //管理数据库.进行定期删除
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
@@ -1365,10 +1373,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
+    //定时触发rdb的位置
+    //检查是否有子进程在生成rdb文件或者aof重写，如果有，则不会启动新的子进程进行rdb持久化
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
-        run_with_period(1000) receiveChildInfo();
-        checkChildrenDone();
+        //这里就是还有子进程在运行
+        run_with_period(1000) receiveChildInfo();//每隔1s就会调用一次这个函数，来读取子进程发送来的信息
+        checkChildrenDone();//就需要等待子进程运行完毕，waitpid,定期的检查子进程是否退出
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
@@ -1379,6 +1390,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              * the given amount of seconds, and if the latest bgsave was
              * successful or if, in case of an error, at least
              * CONFIG_BGSAVE_RETRY_DELAY seconds already elapsed. */
+            //检查是否符合自动触发rdb的条件,需要这几个条件同时满足
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds &&
                 (server.unixtime-server.lastbgsave_try >
@@ -1644,8 +1656,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
+    //redis把定期删除的操作分成了慢速和快速
+    //慢速是在servercron中执行
+    //而快速的就是在beforesleep中执行的
+
     if (server.active_expire_enabled && server.masterhost == NULL)
-        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);//这个就是快速的执行定期删除
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
@@ -2008,9 +2024,13 @@ void initServerConfig(void) {
     unsigned int lruclock = getLRUClock();//在初始化的时候，就设置好了这个lruclock字段
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
+    //server初始化的时候，创建了3个saveparam实例
 
+    //如果距离上一次rdb持久化超过了1个小时，且有1个key修改，就触发了rdb持久化
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
+    //时间超过5小时，100个key被修改
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
+    //距离上一次rdb超过1分钟，10000个key
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
@@ -2635,7 +2655,7 @@ void initServer(void) {
     server.rdb_bgsave_scheduled = 0;
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
-    server.child_info_nread = 0;
+    server.child_info_nread = 0;//初始化从管道读取的字节数
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
@@ -6440,9 +6460,10 @@ void removeSignalHandlers(void) {
  * it in a clean way, without the parent detecting an error and stop
  * accepting writes because of a write error condition. */
 static void sigKillChildHandler(int sig) {
+    //以清洁的方式终止子进程
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
-    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");
+    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");//用于记录接收到SIGUSR1信号的子进程正在退出
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
@@ -6454,7 +6475,7 @@ void setupChildSignalHandlers(void) {
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigKillChildHandler;
-    sigaction(SIGUSR1, &act, NULL);
+    sigaction(SIGUSR1, &act, NULL);//SIGUSR1这个是用户自定义的信号，
 }
 
 /* After fork, the child process will inherit the resources
@@ -6473,18 +6494,21 @@ void closeChildUnusedResourceAfterFork() {
 }
 
 /* purpose is one of CHILD_TYPE_ types */
+//redis多数被用在读多写少的场景，而fork是写时拷贝的，所以这个机制可以最大程度的发挥作用
+//写时拷贝的最小单位是页，而不是kv
 int redisFork(int purpose) {
     if (isMutuallyExclusiveChildType(purpose)) {
+        //检查启动子进程的目的，如果是用于rdb持久化，还需要启动一个pipe，用于父子进程的通信
         if (hasActiveChildProcess()) {
             errno = EEXIST;
             return -1;
         }
-
+        //先创建管道出来
         openChildInfoPipe();
     }
-
     int childpid;
     long long start = ustime();
+    //在fork子进程    
     if ((childpid = fork()) == 0) {
         /* Child.
          *
@@ -6494,15 +6518,18 @@ int redisFork(int purpose) {
          * memory resources are low.
          */
         server.in_fork_child = purpose;
-        setupChildSignalHandlers();
+        setupChildSignalHandlers();//注册信号回调
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         updateDictResizePolicy();
-        dismissMemoryInChild();
+        dismissMemoryInChild();//在fork的时候先释放掉一些内存（管理复制缓冲区的块列表）
+        //释放一些不必要的网络资源和文件
         closeChildUnusedResourceAfterFork();
         /* Close the reading part, so that if the parent crashes, the child will
          * get a write error and exit. */
+        //确保父子进程中通信发生错误时，子进程可以及时退出
+        //确保在父进程崩溃或者异常终止的时候，子进程无法正常读取数据，当子进程想要写管道的时候，如果读端口已经关闭了，就会产生一个写错误，让子进程能够检测到父进程的异常情况，并相应的退出
         if (server.child_info_pipe[0] != -1)
-            close(server.child_info_pipe[0]);
+            close(server.child_info_pipe[0]);//子进程关闭读端口
     } else {
         /* Parent */
         if (childpid == -1) {
@@ -6511,9 +6538,9 @@ int redisFork(int purpose) {
             errno = fork_errno;
             return -1;
         }
-
+        //更新一些统计信息
         server.stat_total_forks++;
-        server.stat_fork_time = ustime()-start;
+        server.stat_fork_time = ustime()-start;//fork花费的时间
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
 
@@ -6525,8 +6552,10 @@ int redisFork(int purpose) {
          * - used for debugging, and we don't want to block it from running while other
          *   forks are running (like RDB and AOF) */
         if (isMutuallyExclusiveChildType(purpose)) {
-            server.child_pid = childpid;
-            server.child_type = purpose;
+            //更新server中子进程相关的字段
+            server.child_pid = childpid;//更新子进程的pid
+            server.child_type = purpose;//更新子进程目前的行为
+            //写时拷贝相关的操作
             server.stat_current_cow_peak = 0;
             server.stat_current_cow_bytes = 0;
             server.stat_current_cow_updated = 0;
@@ -6990,7 +7019,7 @@ int main(int argc, char **argv) {
     char *exec_name = strrchr(argv[0], '/');
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
-    initServerConfig();
+    initServerConfig();//初始化服务器的一些参数，不需要使用到配置文件的
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();

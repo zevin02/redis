@@ -1583,10 +1583,11 @@ long long getExpire(redisDb *db, robj *key) {
 
     /* No expire? return ASAP */
     if (dictSize(db->expires) == 0 ||
-       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
+       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;//没有设置过期时间
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
+    //否则就会给出一个时间戳
     serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }

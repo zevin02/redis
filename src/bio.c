@@ -79,9 +79,9 @@ static unsigned long long bio_pending[BIO_NUM_OPS];//存储每个后台线程待
 typedef union bio_job {
     /* Job specific arguments.*/
     struct {
-        int fd; /* Fd for file based background jobs */
+        int fd; /* Fd for file based background jobs 需要操作的文件描述符*/
         unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
-                                * the file is closed. */
+                                * the file is closed. 是否需要刷盘在文件关闭的时候*/
     } fd_args;
 
     struct {
@@ -136,7 +136,7 @@ void bioInit(void) {
 }
 
 void bioSubmitJob(int type, bio_job *job) {
-    pthread_mutex_lock(&bio_mutex[type]);
+    pthread_mutex_lock(&bio_mutex[type]);//主线程把这个锁给锁上，避免其他线程误操作
     listAddNodeTail(bio_jobs[type],job);//把这个添加到任务队列中
     bio_pending[type]++;//待处理的数加1
     pthread_cond_signal(&bio_newjob_cond[type]);//同时唤醒该线程
@@ -199,7 +199,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     switch (type) {
     case BIO_CLOSE_FILE:
-        redis_set_thread_title("bio_close_file");
+        redis_set_thread_title("bio_close_file");//关闭文件,设置当前线程的名字
         break;
     case BIO_AOF_FSYNC:
         redis_set_thread_title("bio_aof_fsync");
@@ -222,6 +222,8 @@ void *bioProcessBackgroundJobs(void *arg) {
         serverLog(LL_WARNING,
             "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
     //循环处理任务
+    //上面的代码3个线程各自都只会执行一次
+    //执行完了，就到下面的循环中了
     while(1) {
         listNode *ln;//需要处理的任务的节点
 
@@ -240,10 +242,12 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
-            if (job->fd_args.need_fsync) {
+            if (job->fd_args.need_fsync) {//如果需要刷盘
+            //这个底层会调用fdatasync来进行刷盘，fdatasync的速度比fsync要快
+            //fdatasync只会等待文件的数据写入，而不会等待文件的元数据
                 redis_fsync(job->fd_args.fd);
             }
-            close(job->fd_args.fd);
+            close(job->fd_args.fd);//关闭该文件
         } else if (type == BIO_AOF_FSYNC) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because

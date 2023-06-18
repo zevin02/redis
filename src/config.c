@@ -257,7 +257,7 @@ typedef struct typeInterface {
     /* Called on server startup and CONFIG SET, returns 1 on success,
      * 2 meaning no actual change done, 0 on error and can set a verbose err
      * string */
-    int (*set)(standardConfig *config, sds *argv, int argc, const char **err);
+    int (*set)(standardConfig *config, sds *argv, int argc, const char **err);//这个作为函数指针，被重载了
     /* Optional: called after `set()` to apply the config change. Used only in
      * the context of CONFIG SET. Returns 1 on success, 0 on failure.
      * Optionally set err to a static error string. */
@@ -350,7 +350,7 @@ int yesnotoi(char *s) {
     else if (!strcasecmp(s,"no")) return 0;
     else return -1;
 }
-
+//添加新的参数
 void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
@@ -360,8 +360,8 @@ void appendServerSaveParams(time_t seconds, int changes) {
 
 void resetServerSaveParams(void) {
     zfree(server.saveparams);
-    server.saveparams = NULL;
-    server.saveparamslen = 0;
+    server.saveparams = NULL;//清空配置文件
+    server.saveparamslen = 0;//清空长度
 }
 
 void queueLoadModule(sds path, sds *argv, int argc) {
@@ -721,7 +721,7 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
     }
 
     /* Set the config */
-    res = config->interface.set(config, argv, argc, errstr);
+    res = config->interface.set(config, argv, argc, errstr);//根据配置文件来设置
     if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
     return res;
 }
@@ -2620,7 +2620,8 @@ static sds getConfigDirOption(standardConfig *config) {
 
     return sdsnew(buf);
 }
-
+//加载redis.conf的配置文件，解析其中的save项的配置，然后通过这个函数来进行覆盖上面默认的条件
+//CONFIG SET SAVE "3600 3",这条命令也是通过这个函数来进行设置的 
 static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, const char **err) {
     UNUSED(config);
     int j;
@@ -2651,6 +2652,7 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
         }
     }
     /* Finally set the new config */
+    //根据配置文件重新设置配置文件
     if (!reading_config_file) {
         resetServerSaveParams();
     } else {
@@ -2663,12 +2665,12 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
             resetServerSaveParams();
         }
     }
-
+    //根据redis的配置项，添加新的savepararm条件
     for (j = 0; j < argc; j += 2) {
         time_t seconds;
         int changes;
 
-        seconds = strtoll(argv[j],NULL,10);
+        seconds = strtoll(argv[j],NULL,10);//将字符串转化成10进制的long long
         changes = strtoll(argv[j+1],NULL,10);
         appendServerSaveParams(seconds, changes);
     }
