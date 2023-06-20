@@ -171,7 +171,7 @@ void bioCreateCloseJob(int fd, int need_fsync) {
 
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
-
+//提交一个刷盘的任务
 void bioCreateFsyncJob(int fd) {
     bio_job *job = zmalloc(sizeof(*job));
     job->fd_args.fd = fd;
@@ -202,7 +202,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         redis_set_thread_title("bio_close_file");//关闭文件,设置当前线程的名字
         break;
     case BIO_AOF_FSYNC:
-        redis_set_thread_title("bio_aof_fsync");
+        redis_set_thread_title("bio_aof_fsync");//aof进行刷盘
         break;
     case BIO_LAZY_FREE:
         redis_set_thread_title("bio_lazy_free");
@@ -211,7 +211,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     redisSetCpuAffinity(server.bio_cpulist);
 
-    makeThreadKillable();
+    makeThreadKillable();//设置线程可以被取消
 
     pthread_mutex_lock(&bio_mutex[type]);//加锁
     /* Block SIGALRM so we are sure that only the main thread will
@@ -248,14 +248,16 @@ void *bioProcessBackgroundJobs(void *arg) {
                 redis_fsync(job->fd_args.fd);
             }
             close(job->fd_args.fd);//关闭该文件
-        } else if (type == BIO_AOF_FSYNC) {
+        } else if (type == BIO_AOF_FSYNC) {//异步的aof刷盘
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
+            //调用fsync来进行刷盘
             if (redis_fsync(job->fd_args.fd) == -1 &&
                 errno != EBADF && errno != EINVAL)
             {
                 int last_status;
+                //如果刷盘失败，就会更新标志位
                 atomicGet(server.aof_bio_fsync_status,last_status);
                 atomicSet(server.aof_bio_fsync_status,C_ERR);
                 atomicSet(server.aof_bio_fsync_errno,errno);
@@ -285,6 +287,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 }
 
 /* Return the number of pending jobs of the specified type. */
+//获得某个后台bio线程的任务个数
 unsigned long long bioPendingJobsOfType(int type) {
     unsigned long long val;
     pthread_mutex_lock(&bio_mutex[type]);

@@ -635,7 +635,7 @@ int performEvictions(void) {
     int prev_core_propagates = server.core_propagates;
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
-    server.propagate_no_multi = 1;
+    server.propagate_no_multi = 1;//在执行内存替换的时候，就将no_multi设置为1,来进行区分
 
     while (mem_freed < (long long)mem_tofree) {//进入循环判断是否释放了足够多的内存
         int j, k, i;
@@ -762,7 +762,7 @@ int performEvictions(void) {
             signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
-            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);//在执行内存淘汰的时候，就会生成一个del命令在aof中，
             decrRefCount(keyobj);
             keys_freed++;
             //如果淘汰了16个key(因为缓冲池里面最多就能存储16个元素)，就会检查内存大小是否已经满足条件了，以及淘汰操作是否超时，如果满足条件

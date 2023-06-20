@@ -739,11 +739,11 @@ void aofOpenIfNeededOnServerStart(void) {
 
     /* Because we will 'exit(1)' if open AOF or persistent manifest fails, so
      * we don't need atomic modification here. */
-    sds aof_name = getLastIncrAofName(server.aof_manifest);
+    sds aof_name = getLastIncrAofName(server.aof_manifest);//构建aof文件名字为appendonly.aof.3.incr.aof
 
     /* Here we should use 'O_APPEND' flag. */
-    sds aof_filepath = makePath(server.aof_dirname, aof_name);
-    server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);
+    sds aof_filepath = makePath(server.aof_dirname, aof_name);//构建当前aof文件的工作路径./appendonly/appendonly.aof.3.incr.aof
+    server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);//这个地方对aof_fd进行复制
     sdsfree(aof_filepath);
     if (server.aof_fd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
@@ -1023,7 +1023,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
     ssize_t nwritten = 0, totwritten = 0;
 
     while(len) {
-        nwritten = write(fd, buf, len);
+        nwritten = write(fd, buf, len);//循环的将数据写入
 
         if (nwritten < 0) {
             if (errno == EINTR) continue;
@@ -1057,45 +1057,51 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * However if force is set to 1 we'll write regardless of the background
  * fsync. */
 #define AOF_WRITE_LOG_ERROR_RATE 30 /* Seconds between errors logging. */
+//将aof_buf缓冲区的数据写入到aof文件中
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
-    int sync_in_progress = 0;
+    int sync_in_progress = 0;//后台bio线程中处理的任务数
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) {
+    if (sdslen(server.aof_buf) == 0) {//首先在aof_buf缓冲区为空的时候，会检查当前是否需要执行刷盘操作，设计4个方面的检查
         /* Check if we need to do fsync even the aof buffer is empty,
          * because previously in AOF_FSYNC_EVERYSEC mode, fsync is
          * called only when aof buffer is not empty, so if users
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
-        if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-            server.aof_fsync_offset != server.aof_current_size &&
-            server.unixtime > server.aof_last_fsync &&
-            !(sync_in_progress = aofFsyncInProgress())) {
-            goto try_fsync;
+        if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&//当前是eveysecond策略
+            server.aof_fsync_offset != server.aof_current_size &&//有待刷盘的数据
+            server.unixtime > server.aof_last_fsync &&//距离上次刷盘的时间超过了1s
+            !(sync_in_progress = aofFsyncInProgress())) {//后台中没有待执行的刷盘操作
+            goto try_fsync;//向后台提交刷盘任务
         } else {
             return;
         }
     }
 
-    if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
+    if (server.aof_fsync == AOF_FSYNC_EVERYSEC)//每秒刷盘一次
         sync_in_progress = aofFsyncInProgress();
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
          * If the fsync is still in progress we can try to delay
          * the write for a couple of seconds. */
+        //如果aof_buf中有数据等待写入，但是后台线程还有待处理的刷盘任务没有执行完，此时的aof写文件的操作就会进行该延迟
+        
         if (sync_in_progress) {
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
                  * postponing the flush and return. */
-                server.aof_flush_postponed_start = server.unixtime;
+                server.aof_flush_postponed_start = server.unixtime;//记录当前的时间戳
                 return;
             } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
                 /* We were already waiting for fsync to finish, but for less
                  * than two seconds this is still ok. Postpone again. */
+                //后续如果未超过2s，就结束此处的调用，等待调用的时候，再检查后台刷盘任务的状态
+                //如果小于2s，就会直接
                 return;
             }
+            //如果超过了2s的上限值，就会继续后面的逻辑
             /* Otherwise fall through, and go write since we can't wait
              * over two seconds. */
             server.aof_delayed_fsync++;
@@ -1113,8 +1119,8 @@ void flushAppendOnlyFile(int force) {
     }
 
     latencyStartMonitor(latency);
-    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
-    latencyEndMonitor(latency);
+    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));//这里就是把aof缓冲区中的数据刷到aof文件中去
+    latencyEndMonitor(latency);//
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
      * active, and when the above two conditions are missing.
@@ -1130,9 +1136,10 @@ void flushAppendOnlyFile(int force) {
     latencyAddSampleIfNeeded("aof-write",latency);
 
     /* We performed the write so reset the postponed flush sentinel to zero. */
-    server.aof_flush_postponed_start = 0;
-
+    server.aof_flush_postponed_start = 0;//重置时间
+    //检查aof_buf的数据是否被完全写入
     if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
+        //没有被完全写入
         static time_t last_write_error_log = 0;
         int can_log = 0;
 
@@ -1198,12 +1205,13 @@ void flushAppendOnlyFile(int force) {
             return; /* We'll try again on the next call... */
         }
     } else {
+        //数据被完全的写入了
         /* Successful write(2). If AOF was in error state, restore the
          * OK state and log the event. */
-        if (server.aof_last_write_status == C_ERR) {
+        if (server.aof_last_write_status == C_ERR) {//上一次aof有问题，我们可以重置aof标志位
             serverLog(LL_WARNING,
                 "AOF write error looks solved, Redis can write again.");
-            server.aof_last_write_status = C_OK;
+            server.aof_last_write_status = C_OK;//把aof标志位设置成OK
         }
     }
     server.aof_current_size += nwritten;
@@ -1212,9 +1220,9 @@ void flushAppendOnlyFile(int force) {
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */
     if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
-        sdsclear(server.aof_buf);
+        sdsclear(server.aof_buf);//清空aof_buf缓冲区并尝试复用
     } else {
-        sdsfree(server.aof_buf);
+        sdsfree(server.aof_buf);//否则就释放这块内存
         server.aof_buf = sdsempty();
     }
 
@@ -1241,13 +1249,13 @@ try_fsync:
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
-    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&//当前是everysecond策略
                 server.unixtime > server.aof_last_fsync)) {
-        if (!sync_in_progress) {
-            aof_background_fsync(server.aof_fd);
+        if (!sync_in_progress) {//确认当前没有后台刷盘任务
+            aof_background_fsync(server.aof_fd);//提交后台刷盘任务
             server.aof_fsync_offset = server.aof_current_size;
         }
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.unixtime;//更新最新的刷盘时间
     }
 }
 
@@ -1294,7 +1302,7 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
     }
     return ts;
 }
-
+//将数据写入到aof缓冲区中
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
 
@@ -1302,7 +1310,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
 
     /* Feed timestamp if needed */
     if (server.aof_timestamp_enabled) {
-        sds ts = genAofTimestampAnnotationIfNeeded(0);
+        sds ts = genAofTimestampAnnotationIfNeeded(0);//给命令添加时间戳,这里不是每个命令都添加时间戳，而是每秒加1次时间戳
         if (ts != NULL) {
             buf = sdscatsds(buf, ts);
             sdsfree(ts);
@@ -1311,10 +1319,11 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
 
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
-    if (dictid != server.aof_selected_db) {
+    if (dictid != server.aof_selected_db) {//查看命令应用的db是否发生了变更
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
+        //如果发生了变更，就需要添加一条select命令
         buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n",
             (unsigned long)strlen(seldb),seldb);
         server.aof_selected_db = dictid;
@@ -1330,10 +1339,10 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     if (server.aof_state == AOF_ON ||
         (server.aof_state == AOF_WAIT_REWRITE && server.child_type == CHILD_TYPE_AOF))
     {
-        server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
+        server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));//把数据写入到aof缓冲区中
     }
 
-    sdsfree(buf);
+    sdsfree(buf);//再释放掉buf缓冲区
 }
 
 /* ----------------------------------------------------------------------------

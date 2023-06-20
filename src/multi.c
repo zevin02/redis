@@ -197,7 +197,7 @@ void execCommand(client *c) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->argv_len = c->mstate.commands[j].argv_len;
-        c->cmd = c->realcmd = c->mstate.commands[j].cmd;
+        c->cmd = c->realcmd = c->mstate.commands[j].cmd;//设置此时的client，让他在call中能调用到真正的命令
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
@@ -228,7 +228,7 @@ void execCommand(client *c) {
                 "following reason: %s", reason);
         } else {
             if (c->id == CLIENT_ID_AOF)
-                call(c,CMD_CALL_NONE);
+                call(c,CMD_CALL_NONE);//在exec中嵌套调用call命令去执行，call中包含了相应的各种操作
             else
                 call(c,CMD_CALL_FULL);
 

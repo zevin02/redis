@@ -1428,6 +1428,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
+    //serverCron会定时调用flushappendonlyfile函数
+    //第一个调用点判断aof_flush_postponed_start不为0的情况，就是为了延迟写入
     if ((server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE) &&
         server.aof_flush_postponed_start)
     {
@@ -1440,7 +1442,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * a higher frequency. */
     run_with_period(1000) {
         if ((server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE) &&
-            server.aof_last_write_status == C_ERR) 
+            server.aof_last_write_status == C_ERR) //这个是为了写入失败的重试
             {
                 flushAppendOnlyFile(0);
             }
@@ -1720,10 +1722,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
-     * in case of appendfsync=always. */
+     * in case of appendfsync=always. 开启AOF写入逻辑,在写入逻辑之前调用aof*/
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
-        flushAppendOnlyFile(0);
-
+        flushAppendOnlyFile(0);//刷新aof缓冲区到aof文件中
+    //在给客户端之前将数据写入到aof文件中，避免响应已经返回，而aof日志写入失败的情况
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();//处理写事件
 
@@ -1997,7 +1999,7 @@ void initServerConfig(void) {
     server.aof_rewrite_time_start = -1;
     server.aof_lastbgrewrite_status = C_OK;
     server.aof_delayed_fsync = 0;
-    server.aof_fd = -1;
+    server.aof_fd = -1;//初始化aof文件对应的fd
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.aof_last_incr_size = 0;
@@ -2505,9 +2507,27 @@ void resetServerStats(void) {
 /* Make the thread killable at any time, so that kill threads functions
  * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
  * Needed for pthread_cancel used by the fast memory test used by the crash report. */
-void makeThreadKillable(void) {
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+void makeThreadKillable(void) {//设置这个线程为可取消状态
+    //设置线程的取消的状态
+    //PTHREAD_CANCEL_ENABLE：这个启动线程的取消功能，意味着这个线程可以被其他线程取消
+    //PTHREAD_CANCEL_DISABLE：禁用线程的取消功能，意味着线程无法被取消
+    //可以调用pthread_cancel（）来取消线程
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);//这个用来设置线程的取消状态
+    //设置线程取消的类型
+    //PTHREAD_CANCEL_ASYNCHRONOUS：异步取消，线程可以立即取消，而不需要等待取消点
+    //PTHREAD_CANCEL_DEFERRED:延期取消，线程只有在取消点才会被取消
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);//
+
+
+    //取消点：多线程环境中，线程可以被取消的特定位置或操作，当线程在取消点上的时候，会检查是否有取消请求，并执行取消操作
+    /*
+        线程的阻塞操作：例如等待互斥锁、条件变量、信号量等。
+        1. I/O操作：例如读写文件、网络通信等。
+        2. 动态内存分配函数：例如malloc、calloc、realloc等。
+        3. 线程的同步操作：例如等待或通知条件变量。
+        4. 一些系统调用：例如睡眠、等待信号等。
+    
+    */
 }
 //初始化服务器
 void initServer(void) {
@@ -2524,7 +2544,7 @@ void initServer(void) {
     }
 
     /* Initialization after setting defaults from the config system. */
-    server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
+    server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;//初始化服务器的时候就对aof_state进行设置，如果启动了aof，就设置为AOF_ON
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
@@ -3043,7 +3063,7 @@ void redisOpArrayInit(redisOpArray *oa) {
     oa->numops = 0;
     oa->capacity = 0;
 }
-
+//将当前的一条命令添加到oa中
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
     int prev_capacity = oa->capacity;
@@ -3184,7 +3204,7 @@ static int shouldPropagate(int target) {
         return 0;
 
     if (target & PROPAGATE_AOF) {
-        if (server.aof_state != AOF_OFF)
+        if (server.aof_state != AOF_OFF)//检查当前aof状态处理运行态，就可以进行AOF操作了
             return 1;
     }
     if (target & PROPAGATE_REPL) {
@@ -3216,7 +3236,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
-        feedAppendOnlyFile(dbid,argv,argc);
+        feedAppendOnlyFile(dbid,argv,argc);//写入aof日志缓冲区
     if (target & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
@@ -3232,6 +3252,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
+//将命令写入到server.also_propagate的临时缓冲区中
 void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
@@ -3242,8 +3263,9 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
         argvcopy[j] = argv[j];
-        incrRefCount(argv[j]);
+        incrRefCount(argv[j]);//增加当前元素的引用计数
     }
+    //将argv中的命令都拷贝到argvcopy中,再添加到redisServer.also_propagate中
     redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
 }
 
@@ -3326,6 +3348,7 @@ void propagatePendingCommands() {
     {
         transaction = 0;
     }
+    //发现redisOp数组中不止1条命令，就会用事务进行包裹
 
     if (transaction) {
         /* We use the first command-to-propagate to set the dbid for MULTI,
@@ -3333,20 +3356,20 @@ void propagatePendingCommands() {
         int multi_dbid = server.also_propagate.ops[0].dbid;
         propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
-
+    //循环写入redisOp数组中的命令
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);//填充数据到aof_buf缓冲区
     }
 
-    if (transaction) {
+    if (transaction) {//最后补充一条exec命令，提交事务
         /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
         int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
         propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
 
-    redisOpArrayFree(&server.also_propagate);
+    redisOpArrayFree(&server.also_propagate);//释放redisOp数组
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -3422,6 +3445,7 @@ void call(client *c, int flags) {
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
+    //清空3个标志位，这3个标志可能在命令执行的过程中被设置，清空和aof相关的标志位
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* Redis core is in charge of propagation when the first entry point
@@ -3438,7 +3462,7 @@ void call(client *c, int flags) {
         server.core_propagates = 1;
 
     /* Call the command. */
-    dirty = server.dirty;
+    dirty = server.dirty;//暂存当前的dirty字段，如果是修改命令的话，这个值会+1
     incrCommandStatsOnError(NULL, 0);
 
     const long long call_timer = ustime();//获得当前系统时间
@@ -3454,7 +3478,9 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     server.in_nested_call++;
+
     c->cmd->proc(c);//真正调用相应的函数，来进行处理
+    
     server.in_nested_call--;
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
@@ -3466,7 +3492,7 @@ void call(client *c, int flags) {
         duration = ustime() - call_timer;
 
     c->duration = duration;
-    dirty = server.dirty-dirty;
+    dirty = server.dirty-dirty;//获得命令执行之后的值，判断当前的key是否会处理
     if (dirty < 0) dirty = 0;
 
     /* Update failed command calls if required. */
@@ -3545,19 +3571,23 @@ void call(client *c, int flags) {
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
      * Also, module commands take care of themselves */
+    //是否需要命令写入aof文件或者是传播到从节点中
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
         c->cmd->proc != execCommand &&
         !(c->cmd->flags & CMD_MODULE))
     {
+        //初始化propagate_flags标志位，用来记录这个命令是不是要写入aof文件或者是发到从节点中
         int propagate_flags = PROPAGATE_NONE;
 
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation. */
+         //如果是修改命令，propagate_flags中就需要增加下面这个两个标志位
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* If the client forced AOF / replication of the command, set
          * the flags regardless of the command effects on the data set. */
+        //根据client->flags来设置标志位
         if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
@@ -3574,6 +3604,7 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
+        //将命令写入到临时缓冲区server.also_propagate中
             alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
     }
 
@@ -3609,7 +3640,7 @@ void call(client *c, int flags) {
         server.stat_peak_memory = zmalloc_used;
 
     /* Do some maintenance job and cleanup */
-    afterCommand(c);
+    afterCommand(c);//将数据填充到aof_buf缓冲区中
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */
@@ -3660,13 +3691,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 }
 
 /* This is called after a command in call, we can do some maintenance job in it. */
+//这个作用是将redisop数组中的命令写入到aof缓冲区或者主从复制缓冲区中，或者同时写入这两个缓冲区中
+
 void afterCommand(client *c) {
     UNUSED(c);
-    if (!server.in_nested_call) {
+    //事务中的命令aof写入，会在exec命令触发的这个函数进行统一写入缓冲区，而不会单独的写入
+    if (!server.in_nested_call) {//不是嵌套调用
         /* If we are at the top-most call() we can propagate what we accumulated.
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates)
+        if (server.core_propagates)//由主线程触发的。而不是其他的module触发的
             propagatePendingCommands();
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */
@@ -3961,9 +3995,10 @@ int processCommand(client *c) {
     /* Don't accept write commands if there are problems persisting on disk
      * unless coming from our master, in which case check the replica ignore
      * disk write error config to either log or crash. */
+    //通过下面函数检查3中持久化的状态
     int deny_write_type = writeCommandsDeniedByDiskError();
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
-        (is_write_command || c->cmd->proc == pingCommand))
+        (is_write_command || c->cmd->proc == pingCommand))//必须是写命令
     {
         if (obey_client) {
             if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
@@ -3981,7 +4016,7 @@ int processCommand(client *c) {
             sds err = writeCommandsGetDiskErrorMessage(deny_write_type);
             /* remove the newline since rejectCommandSds adds it. */
             sdssubstr(err, 0, sdslen(err)-2);
-            rejectCommandSds(c, err);
+            rejectCommandSds(c, err);//省略调用call函数的后续逻辑
             return C_OK;
         }
     }
@@ -4403,7 +4438,10 @@ error:
  * DISK_ERROR_TYPE_AOF:     Don't accept writes: AOF errors.
  * DISK_ERROR_TYPE_RDB:     Don't accept writes: RDB errors.
  */
+//redisserver.aof_last_write_status被设置为CERR的时候就会阻塞后续的写命令
+//他里面会检查RDB写入状态，AOF写入状态，和AOF后台线程的刷盘情况
 int writeCommandsDeniedByDiskError(void) {
+    //但凡有一个字段不正常，就会返回异常
     if (server.stop_writes_on_bgsave_err &&
         server.saveparamslen > 0 &&
         server.lastbgsave_status == C_ERR)
@@ -4427,9 +4465,10 @@ int writeCommandsDeniedByDiskError(void) {
 
 sds writeCommandsGetDiskErrorMessage(int error_code) {
     sds ret = NULL;
-    if (error_code == DISK_ERROR_TYPE_RDB) {
+    if (error_code == DISK_ERROR_TYPE_RDB) {//因为rdb写入失败而拒绝
         ret = sdsdup(shared.bgsaveerr->ptr);
     } else {
+        //因为aof写入失败或者aof后台线程刷盘失败而拒绝
         ret = sdscatfmt(sdsempty(),
                 "-MISCONF Errors writing to the AOF file: %s\r\n",
                 strerror(server.aof_last_write_errno));
@@ -7220,8 +7259,8 @@ int main(int argc, char **argv) {
         ACLLoadUsersAtStartup();
         InitServerLast();
         aofLoadManifestFromDisk();
-        loadDataFromDisk();
-        aofOpenIfNeededOnServerStart();
+        loadDataFromDisk();//从磁盘中加载rdb文件,进行持久化
+        aofOpenIfNeededOnServerStart();//打开aof文件
         aofDelHistoryFiles();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {

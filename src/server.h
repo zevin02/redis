@@ -293,7 +293,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_CHANNEL_UNSUBSCRIBE (1ULL<<13) /* The command unsubscribes to channels */
 #define CMD_CHANNEL_PUBLISH (1ULL<<14)     /* The command publishes to channels. */
 
-/* AOF states */
+/* AOF states 当前AOF运行的状态*/
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
@@ -334,7 +334,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 #define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
 #define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
-#define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
+#define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)  /*redis会将有返回值的命令重写成作用相同和无返回值的命令，如spop在回复的时候就变成了srem*/
 #define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
                                         handler is yet not installed. */
 #define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
@@ -489,9 +489,9 @@ typedef enum {
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
 
 /* Append only defines */
-#define AOF_FSYNC_NO 0
-#define AOF_FSYNC_ALWAYS 1
-#define AOF_FSYNC_EVERYSEC 2
+#define AOF_FSYNC_NO 0      //不会主动执行fsync刷盘，而是依赖操作系统的自动刷盘机制，这个可能会导致aof日志还在缓冲中，没有真正的刷盘，好处是写入aof效率高
+#define AOF_FSYNC_ALWAYS 1  //每次写入aof中，都会调用fsync来进行刷盘，好处是不会造成aof文件丢失，坏处是效率比较低
+#define AOF_FSYNC_EVERYSEC 2    //每秒执行一次fsync进行刷盘，最多丢失1s的数据
 
 /* Replication diskless load defines */
 #define REPL_DISKLESS_LOAD_DISABLED 0
@@ -556,12 +556,12 @@ typedef enum {
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
-#define CMD_CALL_SLOWLOG (1<<0)
-#define CMD_CALL_STATS (1<<1)
-#define CMD_CALL_PROPAGATE_AOF (1<<2)
-#define CMD_CALL_PROPAGATE_REPL (1<<3)
+#define CMD_CALL_SLOWLOG (1<<0)             /*对命令的执行时长进行采样，检测执行时长是否超过了slowlog-log-slower-than的配置值，如果超过了就当作慢日志记录到rediserver的slowlog队列中，可以使用SLOWLOG GET来获取慢日志*/
+#define CMD_CALL_STATS (1<<1)               /*call函数会更新命令的调用次数和总耗时两个统计信息*/
+#define CMD_CALL_PROPAGATE_AOF (1<<2)       /*call函数会将修改的数据写入到aof文件中*/
+#define CMD_CALL_PROPAGATE_REPL (1<<3)      /*call函数会将修改的数据命令发送给从节点*/
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
-#define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
+#define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)  /*上面所有标志位的集合*/
 #define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
 
 /* Command propagation flags, see propagateNow() function */
@@ -1207,7 +1207,7 @@ typedef struct client {
     char *slave_addr;       /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
-    multiState mstate;      /* MULTI/EXEC state */
+    multiState mstate;      /* MULTI/EXEC state redis事务的aof日志，在执行EXEC命令之前，所有的命令是缓存到这个字段中，只有真正exec命令执行的时候，才会一次调用call函数执行这些命令，这里也就是嵌套call的调用*/
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
@@ -1363,8 +1363,10 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
  * Currently only used to additionally propagate more commands to AOF/Replication
  * after the propagation of the executed command. */
 typedef struct redisOp {
-    robj **argv;
-    int argc, dbid, target;
+    robj **argv;//记录了命令以及命令参数
+    //target就是alsopropagate函数的propagate_flags参数
+    //用于说明这个命令是需要写aof还是需要发送给从库,或者是两个操作都要做
+    int argc, dbid, target;//argc就是命令的长度，dbid是操作的数据库
 } redisOp;
 
 /* Defines an array of Redis operations. There is an API to add to this
@@ -1573,7 +1575,7 @@ struct redisServer {
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC 用这个来区分，redisOp数组中出现多条命令，但不是事务（而是过期，和内存替换）*/
     int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
@@ -1614,7 +1616,7 @@ struct redisServer {
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
-    int in_nested_call;         /* If > 0, in a nested call of a call */
+    int in_nested_call;         /* If > 0, in a nested call of a call 嵌套调用call()*/
     rax *clients_index;         /* Active clients dictionary by client ID. 这是一个rax树，key是client的id，value是该client节点,这个在查找特定的客户端和关闭客户端时候非常高效*/
     pause_type client_pause_type;      /* True if clients are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -1744,34 +1746,34 @@ struct redisServer {
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
     /* AOF persistence */
-    int aof_enabled;                /* AOF configuration */
+    int aof_enabled;                /* AOF configuration aof是否打开*/
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
-    int aof_fsync;                  /* Kind of fsync() policy */
+    int aof_fsync;                  /* Kind of fsync() policy 决定aof的刷盘逻辑*/
     char *aof_filename;             /* Basename of the AOF file and manifest file */
     char *aof_dirname;              /* Name of the AOF directory */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). */
-    off_t aof_last_incr_size;       /* The size of the latest incr AOF. */
-    off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
+    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). 记录aof当中记录的总字节数*/
+    off_t aof_last_incr_size;       /* The size of the latest incr AOF. aof记录incr的值*/
+    off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. 记录当前已经刷到磁盘aof日志的偏移量*/
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
-    sds aof_buf;      /* AOF buffer, written before entering the event loop */
-    int aof_fd;       /* File descriptor of currently selected AOF file */
+    sds aof_buf;      /* AOF buffer, written before entering the event loop 执行的每一条修改命令都会同步放到aof缓冲区中*/
+    int aof_fd;       /* File descriptor of currently selected AOF file 对应的aof文件的fd*/
     int aof_selected_db; /* Currently selected DB in AOF */
-    time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
-    time_t aof_last_fsync;            /* UNIX time of last fsync() */
+    time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush 记录延迟开始的时间戳*/
+    time_t aof_last_fsync;            /* UNIX time of last fsync() 上一次fsync刷盘的时间戳*/
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
-    time_t aof_cur_timestamp;       /* Current record timestamp in AOF */
+    time_t aof_cur_timestamp;       /* Current record timestamp in AOF aof时钟，秒级时间戳*/
     int aof_timestamp_enabled;      /* Enable record timestamp in AOF */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
-    int aof_last_write_status;      /* C_OK or C_ERR */
+    int aof_last_write_status;      /* C_OK or C_ERR AOF写入的状态*/
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
@@ -1819,7 +1821,7 @@ struct redisServer {
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. 该管道用来做父子进程的通信*/
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
-    redisOpArray also_propagate;    /* Additional command to propagate. */
+    redisOpArray also_propagate;    /* Additional command to propagate. 这个里面的数据就是需要进行写入到aof中*/
     int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
