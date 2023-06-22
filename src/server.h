@@ -1490,25 +1490,26 @@ typedef enum {
     AOF_FILE_TYPE_BASE  = 'b', /* BASE file */
     AOF_FILE_TYPE_HIST  = 'h', /* HISTORY file */
     AOF_FILE_TYPE_INCR  = 'i', /* INCR file */
-} aof_file_type;
+} aof_file_type;//一个aof文件的类型
 
 typedef struct {
     sds           file_name;  /* file name */
     long long     file_seq;   /* file sequence */
     aof_file_type file_type;  /* file type */
-} aofInfo;
+} aofInfo;//一个aof文件的所有信息
 
 typedef struct {
-    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */
-    list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
+    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. 当前的base文件*/
+    list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. 当前的incr文件，由于rewrite可能会失败，所以就会产生多个incr文件*/
     list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
                                          `base_aof_info` and `incr_aof_list` will be moved to this list. We
                                          will delete these AOF files when AOFRW finish. */
-    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */
-    long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
+                                         //历史文件列表
+    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. 用于给base aof文件生成的自增字段*/
+    long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. 用于给incr aof生成的自增字段*/
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with
-                                         disk, we need to persist it immediately. */
-} aofManifest;
+                                         disk, we need to persist it immediately. 当前aofmanifest实例与磁盘上的manifest文件是否一致*/
+} aofManifest;//
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -1571,7 +1572,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_exec;                /* Are we inside EXEC? */
+    int in_exec;                /* Are we inside EXEC? 是否正在处于EXEC事务中*/
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
@@ -1639,12 +1640,12 @@ struct redisServer {
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading;
-    volatile sig_atomic_t async_loading; /* We are loading data without blocking the db being served */
-    off_t loading_total_bytes;
+    volatile sig_atomic_t async_loading; /* We are loading data without blocking the db being served 是否需要异步的加载数据，而不影响redis的数据回复*/
+    off_t loading_total_bytes;//载入的总字节数
     off_t loading_rdb_used_mem;
-    off_t loading_loaded_bytes;
-    time_t loading_start_time;
-    off_t loading_process_events_interval_bytes;
+    off_t loading_loaded_bytes;//redis载入的总字节数
+    time_t loading_start_time;//redis加载入数据的开始时间
+    off_t loading_process_events_interval_bytes;//
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1667,7 +1668,7 @@ struct redisServer {
     long long stat_total_active_defrag_time; /* Total time memory fragmentation over the limit, unit us */
     monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record 内存使用的峰值*/
-    long long stat_aof_rewrites;    /* number of aof file rewrites performed */
+    long long stat_aof_rewrites;    /* number of aof file rewrites performed aof rewrite次数*/
     long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
     long long stat_rdb_saves;       /* number of rdb saves performed rdb执行的次数*/
     long long stat_fork_time;       /* Time needed to perform latest fork() 记录fork花费的时间*/
@@ -1755,11 +1756,11 @@ struct redisServer {
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). 记录aof当中记录的总字节数*/
+    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). 记录aof当中记录的总字节数包括（base和incr两个文件的总大小）*/
     off_t aof_last_incr_size;       /* The size of the latest incr AOF. aof记录incr的值*/
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. 记录当前已经刷到磁盘aof日志的偏移量*/
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
-    int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
+    int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. 在bgsave的时候先等待rdb的完成，待rdb完成后根据这个标志来进行rewrite*/
     sds aof_buf;      /* AOF buffer, written before entering the event loop 执行的每一条修改命令都会同步放到aof缓冲区中*/
     int aof_fd;       /* File descriptor of currently selected AOF file 对应的aof文件的fd*/
     int aof_selected_db; /* Currently selected DB in AOF */
@@ -1779,7 +1780,7 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    aofManifest *aof_manifest;       /* Used to track AOFs. */
+    aofManifest *aof_manifest;       /* Used to track AOFs. 每次更新manifest文件的时候，就需要先更新这个字段*/
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
 

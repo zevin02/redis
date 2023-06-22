@@ -108,17 +108,17 @@ void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
         c->flags |= CLIENT_DIRTY_EXEC;
 }
-
+//开启一个事务
 void multiCommand(client *c) {
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
-    c->flags |= CLIENT_MULTI;
+    c->flags |= CLIENT_MULTI;//给当前客户端添加上事物的客户端
 
     addReply(c,shared.ok);
 }
-
+//放弃当前的事务
 void discardCommand(client *c) {
     if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"DISCARD without MULTI");
@@ -133,6 +133,7 @@ void discardCommand(client *c) {
  * the server exited the multi state, but the actual reason for the abort is
  * included too.
  * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
+//上交当前的事务
 void execCommandAbort(client *c, sds error) {
     discardTransaction(c);
 

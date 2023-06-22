@@ -2777,7 +2777,7 @@ emptykey:
 void startLoading(size_t size, int rdbflags, int async) {
     /* Load the DB */
     server.loading = 1;
-    if (async == 1) server.async_loading = 1;
+    if (async == 1) server.async_loading = 1;//是否进行异步的加载数据，不阻塞
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;

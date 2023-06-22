@@ -1119,6 +1119,7 @@ void updateCachedTime(int update_daylight_info) {
 }
 //这个函数就是重置子进程的状态，以便重新使用
 //删除和rdb保存相关的临时文件
+//检查子进程完成，并处理子进程完成后的操作
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
@@ -1152,7 +1153,7 @@ void checkChildrenDone(void) {
             //获得的pid就是server中的，就是正确的
             if (server.child_type == CHILD_TYPE_RDB) {
                 backgroundSaveDoneHandler(exitcode, bysignal);//执行回调逻辑
-            } else if (server.child_type == CHILD_TYPE_AOF) {
+            } else if (server.child_type == CHILD_TYPE_AOF) {//当前子进程处于rewrite状态
                 backgroundRewriteDoneHandler(exitcode, bysignal);
             } else if (server.child_type == CHILD_TYPE_MODULE) {
                 ModuleForkDoneHandler(exitcode, bysignal);
@@ -1365,9 +1366,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
+    //检查是否有子进程，如果没有子进程同时有aof rewrite就说明rewrite任务在等待执行
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
-        !aofRewriteLimited())
+        !aofRewriteLimited())//触发rewrite操作
     {
         rewriteAppendOnlyFileBackground();
     }
@@ -1407,14 +1409,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
 
         /* Trigger an AOF rewrite if needed. */
+        //另一个触发条件就是aof文件的大小以及增长率是否超出了限制，如果超出了限制，才会触发rewrite操作
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
+            //aof文件增长比例和aof文件总和超过了设置的上限，才会触发rewrite
             long long base = server.aof_rewrite_base_size ?
                 server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
+            //检查aof文件增长的比率
             if (growth >= server.aof_rewrite_perc && !aofRewriteLimited()) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
@@ -6714,15 +6719,17 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 }
 
 /* Function called at startup to load RDB or AOF file in memory. */
+//如果有aof，优先根据aof来回复数据，否则才根据rdb来恢复数据
 void loadDataFromDisk(void) {
     long long start = ustime();
-    if (server.aof_state == AOF_ON) {
-        int ret = loadAppendOnlyFiles(server.aof_manifest);
+    if (server.aof_state == AOF_ON) {//如果启动了aof，就根据aof来回复
+        int ret = loadAppendOnlyFiles(server.aof_manifest);//根据aof来回复文件
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
         if (ret != AOF_NOT_EXIST)
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
     } else {
+        //如果没启动aof，就是用rdb来回复数据
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
@@ -7258,9 +7265,9 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
-        aofLoadManifestFromDisk();
-        loadDataFromDisk();//从磁盘中加载rdb文件,进行持久化
-        aofOpenIfNeededOnServerStart();//打开aof文件
+        aofLoadManifestFromDisk();//从manifest文件中读取需要aof回复的文件
+        loadDataFromDisk();//从磁盘中回复数据
+        aofOpenIfNeededOnServerStart();//创建或打开aof文件
         aofDelHistoryFiles();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
